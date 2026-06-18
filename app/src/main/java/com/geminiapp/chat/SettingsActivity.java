@@ -215,11 +215,13 @@ public class SettingsActivity extends Activity {
             }
         });
 
-        tvGithub.setText("GitHub: (coming soon)");
+        tvGithub.setText("GitHub: github.com/andr9y3/OldGemAI");
+        tvGithub.setTextColor(0xFF33B5E5);
         tvGithub.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Toast.makeText(SettingsActivity.this, isRu ? "Страница ещё не готова" : "Page not ready yet", Toast.LENGTH_SHORT).show();
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/andr9y3/OldGemAI/"));
+                startActivity(intent);
             }
         });
 

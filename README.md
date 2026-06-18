@@ -1,65 +1,91 @@
-# Hello World Self-Aware
+# Gemini Chat
 
-[![Minimum API Level](https://img.shields.io/badge/Min%20API%20Level-9-green)](app/build.gradle.kts)
-[![Maximum API Level](https://img.shields.io/badge/Target%20API%20Level-35-orange)](app/build.gradle.kts)
-[![Releases](https://img.shields.io/github/release/Appliberated/HelloWorldSelfAware.svg)](https://github.com/Appliberated/HelloWorldSelfAware/releases/latest)
-[![GitHub repo size](https://img.shields.io/github/repo-size/Appliberated/HelloWorldSelfAware)](https://github.com/Appliberated/HelloWorldSelfAware)
-[![License](https://img.shields.io/npm/l/express.svg)](LICENSE)
-[![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/Appliberated/HelloWorldSelfAware/total)](https://github.com/Appliberated/HelloWorldSelfAware/releases)
+A lightweight Android chat app for talking with Google Gemini AI. Built in pure Java with no third-party libraries — just the Android SDK and the Gemini API.
 
-This is a small 121 KB Hello World app that lets the Android device introduce itself by "name" (serial number), Android version and API Level.
- 
-[Hello World apps](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program) are usually not supposed to be useful. However, you may use this tiny app to quickly find out the Android version and API Level of a device; all displayed information can be copied to the clipboard with a simple long-press. Because it's so tiny and doesn't need any permissions, it's very easy to install even on older and less powerful hardware.
+## Features
 
-## Screenshot
+- **Text chat** with full conversation history sent on every request
+- **Image input** — attach a photo from your gallery and ask questions about it
+- **Image generation** — type `/image <prompt>` to generate an image with Gemini
+- **Model selection** — loads the list of available Gemini models directly from the API so you always get the latest options
+- **Configurable temperature** — adjust creativity from 0.0 to 2.0 via a slider
+- **System prompt** — set a custom system instruction that applies to every message
+- **Bilingual UI** — Russian and English, chosen on first launch
+- **No dependencies** — no Retrofit, no OkHttp, no Gson, no AndroidX; pure `HttpURLConnection` and `org.json`
+- **TLS 1.2 support** — works on Android 2.3+ via a custom `SSLSocketFactory`
 
-<img width="300" src="repo-assets/helloworldselfaware-android-phone-screenshot.png" alt="Hello World Self-Aware - Android phone screenshot">
+## Requirements
 
-## Download
+- Android 2.3 (API 9) or higher
+- A Google Gemini API key (free tier available)
 
-You can download the latest version from the [GitHub Releases](https://github.com/Appliberated/HelloWorldSelfAware/releases/latest) page. This app is not available on the Google Play Store. You will download an `.apk` file that can be installed directly on your Android device.
+## Getting Started
 
-<a href="https://github.com/Appliberated/HelloWorldSelfAware/releases/latest">
-  <img height="24px" alt="Static Badge" src="https://img.shields.io/badge/Download-from_GitHub_Releases-brightgreen?style=plastic&logo=github&color=%23181717">
-</a>
+### 1. Get an API key
 
-## Building from Source
+1. Go to [aistudio.google.com/api-keys](https://aistudio.google.com/api-keys)
+2. Sign in with your Google account
+3. Click **Create API key**
+4. Select or create a project
+5. Copy the key — it starts with `AIza...`
 
-If you'd like to build the app yourself:
+### 2. Build and install
 
-1.  Clone the repository: `git clone https://github.com/Appliberated/HelloWorldSelfAware.git`
+1. Clone the repository:
+   ```
+   git clone https://github.com/your-username/GeminiChat.git
+   ```
+2. Open the project in Android Studio.
+3. Let Gradle sync.
+4. Click **Run 'app'** or build an APK via **Build → Build APK**.
 
-2.  Open the project in Android Studio.
+### 3. First launch
 
-3.  Let Gradle sync the project.
+On first launch the app asks you to choose a language, then walks you through entering your API key. You can skip this step and add the key later in Settings.
 
-4.  Click `Run 'app'`.
+## Usage
 
-The project is configured to work with a minimum API level of 9 (Android 2.3 Gingerbread).
+**Sending a message** — type in the input field and tap Send.
+
+**Attaching an image** — tap the 📷 button, pick a photo from your gallery. The image is scaled to a maximum of 800 px on the long side and compressed before sending.
+
+**Generating an image** — type `/image <description>` and tap Send. The app calls `gemini-3.1-flash-image` and displays the result inline.
+
+**Settings** — open the menu (three-dot or hardware menu button) and tap Settings. From there you can:
+- Change your API key
+- Refresh and pick a Gemini model
+- Set the language
+- Adjust temperature
+- Write a system prompt
+
+**Clear chat** — open the menu and tap Clear chat. This wipes the in-memory history; the app has no persistent chat storage.
+
+## Project Structure
+
+```
+app/src/main/java/com/geminiapp/chat/
+├── MainActivity.java          — chat screen, image picker, message list
+├── GeminiApi.java             — all API calls (chat, image gen, model list)
+├── ChatAdapter.java           — ListView adapter for chat bubbles
+├── SettingsActivity.java      — settings screen
+├── SetupApiKeyActivity.java   — first-launch API key setup
+├── SetupLanguageActivity.java — first-launch language picker
+├── Prefs.java                 — SharedPreferences wrapper
+└── Tls12SocketFactory.java    — TLS 1.2 patch for old Android versions
+```
 
 ## Technical Notes
 
-This project is intentionally kept simple as a learning example. It is written in [Java](app/src/main/java/com/appliberated/helloworldselfaware/MainActivity.java) and uses the classic, plain Android SDK (`android.app.Activity`, `android.widget.TextView`, etc.) without any modern `androidx` libraries or Jetpack Compose. In fact, the `dependencies` section in the [build file](app/build.gradle.kts) is empty.
+The project uses no external libraries. All HTTP communication is done with `HttpURLConnection`, JSON is parsed with `org.json`, and the UI is built entirely in code (no XML layouts used in the main activity). This keeps the APK small and the dependency tree empty.
 
-This direct-to-the-SDK approach is the main reason the final `.apk` is only 121 KB. While this is not the recommended architecture for complex, modern applications, it serves as a clear example of a minimal, dependency-free Android app. The original code was written in 2017 and has been maintained to run on the latest Android versions while preserving this original, lightweight approach.
+TLS 1.2 is not enabled by default on Android 2.3–4.4. `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on old devices.
 
-## Contributing
+Default model: `gemini-2.5-flash`.
 
-Thank you for contributing! Hello World Self-Aware is designed to be as simple as possible, but you can still help with:
+## Reporting Bugs
 
-* testing and reporting bugs
-* creating a nice Android app icon to replace the [current one](app/src/main/res/mipmap-xxxhdpi/ic_launcher.png)
-
-## Support my work
-
-Hello World Self-Aware is a free app, and I enjoy creating and sharing learning projects like this, along with other useful [free apps](https://www.appliberated.com/). If you'd like to support my work, consider checking out the following Pro applications:
-
-<a href="https://www.tecdrop.com/apps/pro/"><img width="300" src="repo-assets/tecdrop-pro-apps.png" alt="Tecdrop Pro Apps" /></a>
-
-[Pitch Black Wallpaper Pro](https://www.tecdrop.com/pitchblackwallpaperpro/) | [RGB Color Wallpaper Pro](https://www.tecdrop.com/rgbcolorwallpaperpro/) |
-| :--- | :--- |
-| <li>Pitch black & dark wallpapers</li><li>AI-generated wallpapers</li><li>Enhances battery life</li><li>Reduces eyestrain</li> | <li>Set any color as wallpaper</li><li>Endless color options, built-in & custom</li><li>Reduce visual clutter</li><li>Enhanced device aesthetics</li> |
+Telegram: [@ialwaysloveyou0](https://t.me/ialwaysloveyou0)
 
 ## License
 
-Hello World Self-Aware is released under the [MIT License](LICENSE).
+MIT

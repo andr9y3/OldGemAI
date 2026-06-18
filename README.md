@@ -39,7 +39,11 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 3. Let Gradle sync.
 4. Click **Run 'app'** or build an APK via **Build -> Build APK**.
 
-	Or build with gradlew... gradlew clean assembledebug -Pandroid.buildToolsVersion=30.0.3
+	Or build with gradlew...
+	
+	```
+    gradlew clean assembledebug -Pandroid.buildToolsVersion=30.0.3
+	```
 
 ### 3. First launch
 

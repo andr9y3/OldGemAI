@@ -90,7 +90,8 @@ Default model: `gemini-2.5-flash`.
 
 ## Screenshots
 
-<img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/452d1112-ae9f-42ab-8e28-8188eec2b7f1" /> <img width="320" height="480" alt="screenshot-20260619-001302" src="https://github.com/user-attachments/assets/99e4674e-206a-4456-b102-60ea1aaab3c6" /> <img width="320" height="480" alt="screenshot-20260619-001316" src="https://github.com/user-attachments/assets/15094e56-6fcd-4abb-88ec-799cbb791ab8" />
+<img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/452d1112-ae9f-42ab-8e28-8188eec2b7f1" /> <img width="320" height="480" alt="screenshot-20260619-001302" src="https://github.com/user-attachments/assets/99e4674e-206a-4456-b102-60ea1aaab3c6" /> <img width="320" height="480" alt="screenshot-20260619-001316" src="https://github.com/user-attachments/assets/15094e56-6fcd-4abb-88ec-799cbb791ab8" /> <img width="320" height="480" alt="screenshot-20260619-002222" src="https://github.com/user-attachments/assets/4d042a5c-8500-4283-96b2-284b915f860b" />
+
 
 
 

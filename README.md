@@ -12,7 +12,7 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **System prompt** - set a custom system instruction that applies to every message
 - **Bilingual UI** - Russian and English, chosen on first launch
 - **No dependencies** - no Retrofit, no OkHttp, no Gson, no AndroidX; pure `HttpURLConnection` and `org.json`
-- **TLS 1.2 support** - works on Android 2.3+ via a custom `SSLSocketFactory`
+- **TLS 1.2 support** - works on Android 1.0+ via a custom `SSLSocketFactory`
 
 ## Requirements
 

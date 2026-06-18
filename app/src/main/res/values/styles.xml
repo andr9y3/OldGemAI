@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="colorPrimary" format="color" />
+    <attr name="colorPrimaryDark" format="color" />
+    <attr name="colorAccent" format="color" />
+    <attr name="actionBarSize" format="dimension" />
+
+    <style name="ThemeOverlay.AppCompat.Dark.ActionBar" parent="">
+        </style>
+
+    <style name="AppTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="actionBarSize">56dp</item>
+    </style>
+</resources>

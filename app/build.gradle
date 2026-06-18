@@ -1,0 +1,36 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 31
+    
+    if (project.hasProperty('android.buildToolsVersion')) {
+        buildToolsVersion project.property('android.buildToolsVersion')
+    } else {
+        buildToolsVersion "30.0.3"
+    }
+
+    // Отключение оптимизации картинок, вызывающей ошибку mergeDebugResources
+    aaptOptions {
+        cruncherEnabled = false
+        useNewCruncher = false
+    }
+
+    defaultConfig {
+        applicationId "com.geminiapp.chat"
+        minSdkVersion 9
+        targetSdkVersion 31
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    // Чистый проект без сторонних библиотек и androidx
+}

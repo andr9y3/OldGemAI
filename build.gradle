@@ -1,0 +1,18 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    repositories {
+        // Использовался в старых версиях вместо mavenCentral()
+        jcenter() 
+    }
+    dependencies {
+        // Подключаем старый плагин сборки Android, совместимый с Android 2.3 и Gradle 2.2.1
+        classpath 'com.android.tools.build:gradle:1.1.0'
+    }
+}
+
+allprojects {
+    repositories {
+        jcenter()
+    }
+}

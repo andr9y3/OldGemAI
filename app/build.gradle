@@ -17,10 +17,10 @@ android {
 
     defaultConfig {
         applicationId "com.geminiapp.chat"
-        minSdkVersion 9
+        minSdkVersion 1
         targetSdkVersion 31
         versionCode 1
-        versionName "1.0"
+        versionName "1.1"
     }
 
     buildTypes {

@@ -98,7 +98,7 @@ public class MainActivity extends Activity {
         inputLayout.setPadding(10, 10, 10, 10);
 
         btnAttach = new Button(this);
-        btnAttach.setText("📷");
+        btnAttach.setText("+");
         inputLayout.addView(btnAttach, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -215,7 +215,7 @@ public class MainActivity extends Activity {
 
         btnSend.setText(isRu ? "Отправить" : "Send");
         etMessage.setHint(isRu ? "Сообщение..." : "Message...");
-        setTitle(isRu ? "Gemini Чат" : "Gemini Chat");
+        setTitle(isRu ? "OldGemAI" : "OldGemAI");
     }
 
     private void sendMessage() {

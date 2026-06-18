@@ -16,7 +16,7 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 
 ## Requirements
 
-- Android 2.3 (API 9) or higher
+- Android 1.0 (API 1) or higher
 - A Google Gemini API key (free tier available)
 
 ## Getting Started
@@ -47,7 +47,7 @@ On first launch the app asks you to choose a language, then walks you through en
 
 **Sending a message** - type in the input field and tap Send.
 
-**Attaching an image** - tap the 📷 button, pick a photo from your gallery. The image is scaled to a maximum of 800 px on the long side and compressed before sending.
+**Attaching an image** - tap the + button, pick a photo from your gallery. The image is scaled to a maximum of 800 px on the long side and compressed before sending.
 
 **Generating an image** - type `/image <description>` and tap Send. The app calls `gemini-3.1-flash-image` and displays the result inline.
 
@@ -78,7 +78,7 @@ app/src/main/java/com/geminiapp/chat/
 
 The project uses no external libraries. All HTTP communication is done with `HttpURLConnection`, JSON is parsed with `org.json`, and the UI is built entirely in code (no XML layouts used in the main activity). This keeps the APK small and the dependency tree empty.
 
-TLS 1.2 is not enabled by default on Android 2.3-4.4. `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on old devices.
+TLS 1.2 is not enabled by default on Android 1.0-4.4. `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on old devices.
 
 Default model: `gemini-2.5-flash`.
 

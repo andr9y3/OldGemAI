@@ -90,10 +90,10 @@ Default model: `gemini-2.5-flash`.
 
 ## Screenshots
 
-<img width="320" height="480" alt="screenshot-20260619-002222" src="https://github.com/user-attachments/assets/56ac70a9-6208-447f-8121-1dcb61b1cc7d" />
-<img width="320" height="480" alt="screenshot-20260619-001302" src="https://github.com/user-attachments/assets/4e13f399-f4fd-405c-be9c-c75c615b3ff0" />
-<img width="320" height="480" alt="screenshot-20260619-001316" src="https://github.com/user-attachments/assets/0c4653c4-45fd-4001-9cc7-ab3a97632fd6" />
-<img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/1c5e10de-67dc-49a8-934c-47685b846904" />
+<img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/25b9e920-b721-4b26-be03-535c02e1bc2b" />
+<img width="320" height="480" alt="screenshot-20260619-002222" src="https://github.com/user-attachments/assets/82b132f7-82d0-4e28-818e-85b0aeea7d47" />
+<img width="320" height="480" alt="screenshot-20260619-001302" src="https://github.com/user-attachments/assets/72a0fe94-5254-4332-8e3d-b12136791f18" />
+<img width="320" height="480" alt="screenshot-20260619-001316" src="https://github.com/user-attachments/assets/1fdf838e-1400-4105-b695-ae178755711c" />
 
 
 

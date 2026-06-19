@@ -16,7 +16,7 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 
 ## Requirements
 
-- Android 1.0 (API 1) or higher (⚠️ Android 1.0 support is unverified — only tested on Android 2.3+.)
+- Android 1.0 (API 1) or higher
 - A Google Gemini API key (free tier available)
 
 ## Getting Started

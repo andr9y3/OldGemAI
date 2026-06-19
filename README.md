@@ -1,4 +1,4 @@
-# Gemini Chat
+# OldGemAI
 
 A lightweight Android chat app for talking with Google Gemini AI. Built in pure Java with no third-party libraries - just the Android SDK and the Gemini API.
 
@@ -44,6 +44,19 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 	```
     gradlew clean assembledebug -Pandroid.buildToolsVersion=30.0.3
 	```
+5. Sign apk, To sign the APK, you need to navigate to OldGemAI\app\build\outputs\apk, copy uber-apk-signer.jar here and run:
+
+	```
+    keytool -genkeypair -v -keystore my.keystore -alias mykey -keyalg RSA -keysize 2048 -validity 10000
+	```
+	
+	Then enter the password of your choice. After that, run:
+	
+	```
+    java -jar uber-apk-signer.jar -a app-debug.apk --ks my.keystore --ksAlias mykey --ksKeyPass password --ksPass password --v2SigningEnabled true
+	```
+	
+	APK in the releases are already signed.
 
 ### 3. First launch
 
@@ -88,6 +101,15 @@ TLS 1.2 is not enabled by default on Android 1.0-4.4. `Tls12SocketFactory` wraps
 
 Default model: `gemini-2.5-flash`.
 
+## Screenshots
+
+<img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/25b9e920-b721-4b26-be03-535c02e1bc2b" />
+<img width="320" height="480" alt="screenshot-20260619-002222" src="https://github.com/user-attachments/assets/82b132f7-82d0-4e28-818e-85b0aeea7d47" />
+<img width="320" height="480" alt="screenshot-20260619-001302" src="https://github.com/user-attachments/assets/72a0fe94-5254-4332-8e3d-b12136791f18" />
+<img width="320" height="480" alt="screenshot-20260619-001316" src="https://github.com/user-attachments/assets/1fdf838e-1400-4105-b695-ae178755711c" />
+
+
+
 ## Reporting Bugs
 
 Telegram: [@ialwaysloveyou0](https://t.me/ialwaysloveyou0)
@@ -95,3 +117,4 @@ Telegram: [@ialwaysloveyou0](https://t.me/ialwaysloveyou0)
 ## License
 
 MIT
+

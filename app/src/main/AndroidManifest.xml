@@ -22,6 +22,7 @@
         <activity android:name=".SetupApiKeyActivity" />
         <activity android:name=".MainActivity" />
         <activity android:name=".SettingsActivity" />
+        <activity android:name=".ChatHistoryActivity" />
 
     </application>
 

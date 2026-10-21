@@ -67,6 +67,7 @@ public class ChatAdapter extends BaseAdapter {
                 caption.setText(msg.text);
                 caption.setTextSize(13);
                 caption.setTextColor(0xFF888888);
+                attachCopyOnLongPress(caption, msg.text);
                 container.addView(caption);
             }
             return container;
@@ -110,9 +111,26 @@ public class ChatAdapter extends BaseAdapter {
             tv.setTextColor(0xFF222222);
         }
 
+        attachCopyOnLongPress(tv, msg.text);
         bubbleRow.addView(tv);
         container.addView(bubbleRow);
         return container;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void attachCopyOnLongPress(View view, final String text) {
+        view.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                if (text == null || text.isEmpty()) return false;
+                android.text.ClipboardManager cm = (android.text.ClipboardManager)
+                        context.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm == null) return false;
+                cm.setText(text);
+                android.widget.Toast.makeText(context, "Скопировано", android.widget.Toast.LENGTH_SHORT).show();
+                return true;
+            }
+        });
     }
 
     private int dp(int val) {

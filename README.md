@@ -6,7 +6,11 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 
 - **Text chat** with full conversation history sent on every request
 - **Image input** - attach a photo from your gallery and ask questions about it
-- **Image generation** - type `/image <prompt>` to generate an image with Gemini
+- **Image generation** - type `/image <prompt>` to generate an image with Gemini; the image model is picked automatically (see below)
+- **Streaming responses** - the answer is typed out gradually as Gemini generates it; can be turned off in Settings to get the full answer at once (the old behavior)
+- **Chat history** - chats are saved to a local SQLite database; open, rename or delete them from the History screen
+- **Copy by long press** - hold any message bubble to copy its text to the clipboard
+- **Adaptive menu** - on phones without a hardware menu button, Settings and Clear chat appear as buttons at the top of the screen
 - **Model selection** - loads the list of available Gemini models directly from the API so you always get the latest options
 - **Configurable temperature** - adjust creativity from 0.0 to 2.0 via a slider
 - **System prompt** - set a custom system instruction that applies to every message
@@ -68,7 +72,7 @@ On first launch the app asks you to choose a language, then walks you through en
 
 **Attaching an image** - tap the + button, pick a photo from your gallery. The image is scaled to a maximum of 800 px on the long side and compressed before sending.
 
-**Generating an image** - type `/image <description>` and tap Send. The app calls `gemini-3.1-flash-image` and displays the result inline.
+**Generating an image** - type `/image <description>` and tap Send. The app picks an image model automatically and displays the result inline. The Gemini API does not report whether a model is free, so the app loads the model list, keeps the models with `image` in the name and tries them one by one (the last working model first, then `lite` variants, then the rest; up to 5 attempts) until one succeeds. The working model is remembered for next time. If none of them works on your key (for example, no free quota), the last error is shown.
 
 **Settings** - open the menu (three-dot or hardware menu button) and tap Settings. From there you can:
 - Change your API key
@@ -76,8 +80,17 @@ On first launch the app asks you to choose a language, then walks you through en
 - Set the language
 - Adjust temperature
 - Write a system prompt
+- Turn streaming (gradual typing of the answer) on or off
 
-**Clear chat** - open the menu and tap Clear chat. This wipes the in-memory history; the app has no persistent chat storage.
+If your phone has no hardware menu button (most modern devices), the Settings and Clear chat buttons are shown at the top of the chat screen instead of the menu.
+
+**Streaming** - by default the answer appears gradually while Gemini is writing it. To get the full answer at once, as in earlier versions, turn off the streaming checkbox in Settings and tap Save.
+
+**Chat history** - every chat is saved automatically. Tap History to open a saved chat. Long-press a chat in the list to open, rename or delete it; the menu in the History screen has Clear all.
+
+**Copy text** - long-press a message bubble to copy its text.
+
+**Clear chat** - starts a new empty chat. The previous chat stays saved in History.
 
 ## Project Structure
 
@@ -85,7 +98,9 @@ On first launch the app asks you to choose a language, then walks you through en
 app/src/main/java/com/geminiapp/chat/
 ├── MainActivity.java          - chat screen, image picker, message list
 ├── GeminiApi.java             - all API calls (chat, image gen, model list)
-├── ChatAdapter.java           - ListView adapter for chat bubbles
+├── ChatAdapter.java           - ListView adapter for chat bubbles, copy on long press
+├── ChatDatabase.java          - SQLite storage for chats and messages
+├── ChatHistoryActivity.java   - saved chats list (open, rename, delete)
 ├── SettingsActivity.java      - settings screen
 ├── SetupApiKeyActivity.java   - first-launch API key setup
 ├── SetupLanguageActivity.java - first-launch language picker
@@ -99,7 +114,11 @@ The project uses no external libraries. All HTTP communication is done with `Htt
 
 TLS 1.2 is not enabled by default on Android 1.0-4.4. `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on old devices.
 
-Default model: `gemini-2.5-flash`.
+Streaming uses the `streamGenerateContent?alt=sse` endpoint (Server-Sent Events); the response is read line by line and the message bubble is updated on every chunk.
+
+Default model: `gemini-2.5-flash`. The image model is not fixed: it is discovered at runtime from the model list.
+
+The model list request uses `pageSize=1000` so that image models are not cut off by the default page size.
 
 ## Screenshots
 

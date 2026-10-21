@@ -11,6 +11,8 @@ public class Prefs {
     private static final String KEY_TEMPERATURE = "temperature";
     private static final String KEY_SYSTEM_PROMPT = "system_prompt";
     private static final String KEY_SETUP_DONE = "setup_done";
+    private static final String KEY_STREAM = "stream_response";
+    private static final String KEY_IMAGE_MODEL = "image_model";
 
     public static final String LANG_RU = "ru";
     public static final String LANG_EN = "en";
@@ -59,6 +61,24 @@ public class Prefs {
 
     public void setTemperature(float temp) {
         prefs.edit().putFloat(KEY_TEMPERATURE, temp).apply();
+    }
+
+    // true - ответ печатается постепенно, false - сразу целиком (старый вариант)
+    public boolean isStream() {
+        return prefs.getBoolean(KEY_STREAM, true);
+    }
+
+    public void setStream(boolean stream) {
+        prefs.edit().putBoolean(KEY_STREAM, stream).apply();
+    }
+
+    // Модель для генерации картинок, которая в последний раз успешно сработала
+    public String getImageModel() {
+        return prefs.getString(KEY_IMAGE_MODEL, "");
+    }
+
+    public void setImageModel(String model) {
+        prefs.edit().putString(KEY_IMAGE_MODEL, model).apply();
     }
 
     public String getSystemPrompt() {

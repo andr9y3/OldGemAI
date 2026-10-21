@@ -29,7 +29,8 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     private static final int REQUEST_PICK_IMAGE = 1001;
-    private static final int MAX_IMAGE_SIZE = 800; // макс пикселей по длинной стороне
+    private static final int REQUEST_HISTORY = 1002;
+    private static final int MAX_IMAGE_SIZE = 800;
     private static final int JPEG_QUALITY = 75;
 
     private Prefs prefs;
@@ -37,18 +38,24 @@ public class MainActivity extends Activity {
     private ChatAdapter adapter;
     private GeminiApi geminiApi;
     private Handler mainHandler;
+    private ChatDatabase chatDb;
 
     private ListView lvChat;
     private EditText etMessage;
     private Button btnSend;
     private Button btnAttach;
+    private Button btnHistory;
+    private LinearLayout topBar;
+    private Button btnSettings;
+    private Button btnClear;
     private TextView tvNoKeyBanner;
     private ImageView ivPreview;
     private LinearLayout attachPreviewLayout;
 
-    // Прикреплённое изображение
     private String pendingImageBase64 = null;
     private String pendingImageMime = "image/jpeg";
+    private long currentChatId = -1;
+    private boolean pendingResponse = false; // последнее сообщение в списке - заглушка, ответ ещё не получен
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,10 +64,35 @@ public class MainActivity extends Activity {
         prefs = new Prefs(this);
         geminiApi = new GeminiApi();
         mainHandler = new Handler(Looper.getMainLooper());
+        chatDb = new ChatDatabase(this);
         messages = new ArrayList<GeminiApi.Message>();
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
+
+        // Панель с кнопками настроек и очистки - только если у телефона нет кнопки контекстного меню
+        topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        btnSettings = new Button(this);
+        btnClear = new Button(this);
+        topBar.addView(btnSettings, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        topBar.addView(btnClear, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        topBar.setVisibility(hasMenuKey() ? View.GONE : View.VISIBLE);
+        mainLayout.addView(topBar);
+        btnSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+            }
+        });
+        btnClear.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clearChat();
+            }
+        });
 
         tvNoKeyBanner = new TextView(this);
         tvNoKeyBanner.setBackgroundColor(0xFFFFCCCC);
@@ -73,7 +105,6 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.FILL_PARENT, 0, 1.0f);
         mainLayout.addView(lvChat, listParams);
 
-        // Панель превью прикреплённой картинки
         attachPreviewLayout = new LinearLayout(this);
         attachPreviewLayout.setOrientation(LinearLayout.HORIZONTAL);
         attachPreviewLayout.setPadding(10, 4, 10, 4);
@@ -92,7 +123,6 @@ public class MainActivity extends Activity {
 
         mainLayout.addView(attachPreviewLayout);
 
-        // Панель ввода
         LinearLayout inputLayout = new LinearLayout(this);
         inputLayout.setOrientation(LinearLayout.HORIZONTAL);
         inputLayout.setPadding(10, 10, 10, 10);
@@ -100,6 +130,11 @@ public class MainActivity extends Activity {
         btnAttach = new Button(this);
         btnAttach.setText("+");
         inputLayout.addView(btnAttach, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        btnHistory = new Button(this);
+        btnHistory.setText("История");
+        inputLayout.addView(btnHistory, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         etMessage = new EditText(this);
@@ -136,6 +171,18 @@ public class MainActivity extends Activity {
             }
         });
 
+        btnHistory.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (pendingResponse) {
+                    boolean ru = Prefs.LANG_RU.equals(prefs.getLanguage());
+                    Toast.makeText(MainActivity.this, ru ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                startActivityForResult(new Intent(MainActivity.this, ChatHistoryActivity.class), REQUEST_HISTORY);
+            }
+        });
+
         btnRemoveImage.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -148,6 +195,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_HISTORY && resultCode == RESULT_OK && data != null) {
+            long chatId = data.getLongExtra("chat_id", -1);
+            if (chatId != -1) {
+                loadChatFromHistory(chatId);
+            }
+            return;
+        }
+
         if (requestCode == REQUEST_PICK_IMAGE && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
             if (uri == null) return;
@@ -155,12 +211,10 @@ public class MainActivity extends Activity {
                 InputStream is = getContentResolver().openInputStream(uri);
                 if (is == null) return;
 
-                // Определяем MIME тип
                 String mime = getContentResolver().getType(uri);
                 if (mime == null) mime = "image/jpeg";
                 pendingImageMime = mime;
 
-                // Читаем и сжимаем
                 Bitmap original = BitmapFactory.decodeStream(is);
                 is.close();
                 if (original == null) {
@@ -171,20 +225,54 @@ public class MainActivity extends Activity {
                 Bitmap scaled = scaleBitmap(original);
                 original.recycle();
 
-                // Кодируем в base64
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 Bitmap.CompressFormat fmt = mime.contains("png") ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG;
                 scaled.compress(fmt, JPEG_QUALITY, baos);
                 byte[] bytes = baos.toByteArray();
                 pendingImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
 
-                // Показываем превью
                 ivPreview.setImageBitmap(scaled);
                 attachPreviewLayout.setVisibility(View.VISIBLE);
 
             } catch (Exception e) {
                 Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    private void loadChatFromHistory(long chatId) {
+        List<GeminiApi.Message> loaded = chatDb.getChatMessages(chatId);
+        messages.clear();
+        messages.addAll(loaded);
+        adapter.notifyDataSetChanged();
+        lvChat.setSelection(Math.max(0, messages.size() - 1));
+        currentChatId = chatId;
+    }
+
+    private void saveNewMessages() {
+        if (messages.isEmpty()) return;
+
+        // Если чат удалили из истории, создадим его заново
+        if (currentChatId != -1 && !chatDb.chatExists(currentChatId)) {
+            currentChatId = -1;
+        }
+        createNewChatIfNeeded();
+        if (currentChatId == -1) return;
+
+        // Заглушку "..." в базу не пишем, пока не пришёл ответ
+        int end = messages.size();
+        if (pendingResponse) end--;
+
+        // Дописываем только то, чего в БД ещё нет (счётчик берётся из самой БД)
+        chatDb.syncMessages(currentChatId, messages, end);
+    }
+
+    private void createNewChatIfNeeded() {
+        if (currentChatId == -1 && !messages.isEmpty()) {
+            String preview = messages.get(0).text != null && !messages.get(0).text.isEmpty()
+                ? messages.get(0).text.substring(0, Math.min(50, messages.get(0).text.length()))
+                : "Чат";
+            currentChatId = chatDb.createChat(preview);
         }
     }
 
@@ -204,6 +292,12 @@ public class MainActivity extends Activity {
         updateBanner();
     }
 
+    @Override
+    protected void onPause() {
+        super.onPause();
+        saveNewMessages();
+    }
+
     private void updateBanner() {
         boolean hasKey = !TextUtils.isEmpty(prefs.getApiKey());
         tvNoKeyBanner.setVisibility(hasKey ? View.GONE : View.VISIBLE);
@@ -214,6 +308,9 @@ public class MainActivity extends Activity {
             : "No API key set - AI will not work. Add your key in Settings.");
 
         btnSend.setText(isRu ? "Отправить" : "Send");
+        btnHistory.setText(isRu ? "История" : "History");
+        btnSettings.setText(isRu ? "Настройки" : "Settings");
+        btnClear.setText(isRu ? "Очистить чат" : "Clear chat");
         etMessage.setHint(isRu ? "Сообщение..." : "Message...");
         setTitle(isRu ? "OldGemAI" : "OldGemAI");
     }
@@ -232,7 +329,6 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Команда /image <промпт>
         if (text.toLowerCase().startsWith("/image ") || text.toLowerCase().equals("/image")) {
             final String prompt = text.length() > 7 ? text.substring(7).trim() : "";
             if (prompt.isEmpty()) {
@@ -246,8 +342,14 @@ public class MainActivity extends Activity {
             lvChat.setSelection(messages.size() - 1);
             btnSend.setEnabled(false);
             btnAttach.setEnabled(false);
+            pendingResponse = true;
 
-            geminiApi.generateImage(apiKey, prompt, new GeminiApi.ImageCallback() {
+            geminiApi.generateImageAuto(apiKey, prompt, prefs.getImageModel(), new GeminiApi.AutoImageCallback() {
+                @Override
+                public void onModelUsed(String model) {
+                    prefs.setImageModel(model);
+                }
+
                 @Override
                 public void onSuccess(final String base64png) {
                     mainHandler.post(new Runnable() {
@@ -258,6 +360,8 @@ public class MainActivity extends Activity {
                             lvChat.setSelection(messages.size() - 1);
                             btnSend.setEnabled(true);
                             btnAttach.setEnabled(true);
+                            pendingResponse = false;
+                            saveNewMessages();
                         }
                     });
                 }
@@ -266,6 +370,7 @@ public class MainActivity extends Activity {
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
+                            pendingResponse = false;
                             messages.remove(messages.size() - 1);
                             adapter.notifyDataSetChanged();
                             btnSend.setEnabled(true);
@@ -281,7 +386,6 @@ public class MainActivity extends Activity {
         final String imageBase64 = pendingImageBase64;
         final String imageMime = pendingImageMime;
 
-        // Добавляем сообщение пользователя
         GeminiApi.Message userMsg = hasImage
             ? new GeminiApi.Message("user", text, imageBase64, imageMime)
             : new GeminiApi.Message("user", text);
@@ -290,11 +394,11 @@ public class MainActivity extends Activity {
         lvChat.setSelection(messages.size() - 1);
         etMessage.setText("");
 
-        // Сбрасываем прикреплённое фото
         pendingImageBase64 = null;
         attachPreviewLayout.setVisibility(View.GONE);
 
         messages.add(new GeminiApi.Message("model", "..."));
+        pendingResponse = true;
         adapter.notifyDataSetChanged();
 
         btnSend.setEnabled(false);
@@ -311,7 +415,22 @@ public class MainActivity extends Activity {
             prefs.getTemperature(),
             prefs.getSystemPrompt(),
             historyCopy,
-            new GeminiApi.Callback() {
+            prefs.isStream(),
+            new GeminiApi.StreamCallback() {
+                @Override
+                public void onPartial(final String textSoFar) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (pendingResponse && messages.size() > 0) {
+                                messages.set(messages.size() - 1, new GeminiApi.Message("model", textSoFar));
+                                adapter.notifyDataSetChanged();
+                                lvChat.setSelection(messages.size() - 1);
+                            }
+                        }
+                    });
+                }
+
                 @Override
                 public void onSuccess(final String response) {
                     mainHandler.post(new Runnable() {
@@ -324,6 +443,8 @@ public class MainActivity extends Activity {
                             }
                             btnSend.setEnabled(true);
                             btnAttach.setEnabled(true);
+                            pendingResponse = false;
+                            saveNewMessages();
                         }
                     });
                 }
@@ -333,6 +454,7 @@ public class MainActivity extends Activity {
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
+                            pendingResponse = false;
                             if (messages.size() > 0) {
                                 messages.remove(messages.size() - 1);
                                 adapter.notifyDataSetChanged();
@@ -368,11 +490,28 @@ public class MainActivity extends Activity {
             startActivity(new Intent(this, SettingsActivity.class));
             return true;
         } else if (item.getItemId() == 2) {
-            messages.clear();
-            adapter.notifyDataSetChanged();
+            clearChat();
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    // true - у устройства есть кнопка контекстного меню. До Android 4.0 (API 14) она была всегда.
+    private boolean hasMenuKey() {
+        if (android.os.Build.VERSION.SDK_INT < 14) return true;
+        return android.view.ViewConfiguration.get(this).hasPermanentMenuKey();
+    }
+
+    private void clearChat() {
+        if (pendingResponse) {
+            boolean ru = Prefs.LANG_RU.equals(prefs.getLanguage());
+            Toast.makeText(this, ru ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        saveNewMessages();
+        messages.clear();
+        adapter.notifyDataSetChanged();
+        currentChatId = -1;
     }
 
     private int dp(int val) {

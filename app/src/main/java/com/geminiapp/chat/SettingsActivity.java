@@ -102,6 +102,12 @@ public class SettingsActivity extends Activity {
         etSystemPrompt.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         layout.addView(etSystemPrompt);
 
+        final android.widget.CheckBox cbStream = new android.widget.CheckBox(this);
+        cbStream.setText(isRu ? "Постепенный вывод ответа (выключите для старого варианта)"
+                              : "Stream response (turn off for the old way)");
+        cbStream.setChecked(prefs.isStream());
+        layout.addView(cbStream);
+
         Button btnSave = new Button(this);
         btnSave.setText(isRu ? "Сохранить" : "Save");
         layout.addView(btnSave);
@@ -208,6 +214,7 @@ public class SettingsActivity extends Activity {
                 prefs.setLanguage(spinnerLanguage.getSelectedItemPosition() == 0 ? Prefs.LANG_RU : Prefs.LANG_EN);
                 prefs.setTemperature(seekTemperature.getProgress() / 10f);
                 prefs.setSystemPrompt(etSystemPrompt.getText().toString().trim());
+                prefs.setStream(cbStream.isChecked());
 
                 boolean nowRu = Prefs.LANG_RU.equals(prefs.getLanguage());
                 Toast.makeText(SettingsActivity.this, nowRu ? "Сохранено" : "Saved", Toast.LENGTH_SHORT).show();

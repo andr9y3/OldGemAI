@@ -59,6 +59,11 @@ public class GeminiApi {
         void onError(String error);
     }
 
+    // Колбэк с постепенным выводом: onPartial получает весь текст, накопленный к этому моменту
+    public interface StreamCallback extends Callback {
+        void onPartial(String textSoFar);
+    }
+
     public interface ModelsCallback {
         void onSuccess(java.util.List<String> models);
         void onError(String error);
@@ -70,7 +75,7 @@ public class GeminiApi {
             public void run() {
                 HttpURLConnection connection = null;
                 try {
-                    URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey + "&pageSize=50");
+                    URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey + "&pageSize=1000");
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof javax.net.ssl.HttpsURLConnection) {
                         try {
@@ -136,7 +141,79 @@ public class GeminiApi {
         void onError(String error);
     }
 
-    public void generateImage(final String apiKey, final String prompt, final ImageCallback callback) {
+    public interface AutoImageCallback extends ImageCallback {
+        void onModelUsed(String model);
+    }
+
+    /**
+     * API не сообщает, бесплатна ли модель, поэтому подбираем пробой: берём из списка моделей
+     * все, что умеют картинки (в имени "image"), и пробуем по очереди, пока одна не сработает.
+     * Ранее сработавшая модель (preferred) пробуется первой.
+     */
+    public void generateImageAuto(final String apiKey, final String prompt,
+                                  final String preferred, final AutoImageCallback callback) {
+        listModels(apiKey, new ModelsCallback() {
+            @Override
+            public void onSuccess(java.util.List<String> models) {
+                java.util.List<String> cands = new java.util.ArrayList<String>();
+                if (preferred != null && preferred.length() > 0) cands.add(preferred);
+
+                java.util.List<String> found = new java.util.ArrayList<String>();
+                for (String m : models) {
+                    if (m.contains("image") && !m.startsWith("imagen") && !cands.contains(m)) {
+                        found.add(m);
+                    }
+                }
+                // Сначала lite-варианты (дешевле), потом остальные по имени (старые версии раньше)
+                java.util.Collections.sort(found, new java.util.Comparator<String>() {
+                    @Override
+                    public int compare(String a, String b) {
+                        boolean la = a.contains("lite");
+                        boolean lb = b.contains("lite");
+                        if (la != lb) return la ? -1 : 1;
+                        return a.compareTo(b);
+                    }
+                });
+                cands.addAll(found);
+
+                if (cands.isEmpty()) {
+                    callback.onError("No image models found");
+                    return;
+                }
+                if (cands.size() > 5) cands = new java.util.ArrayList<String>(cands.subList(0, 5));
+                tryImageModel(apiKey, prompt, cands, 0, callback);
+            }
+
+            @Override
+            public void onError(String error) {
+                callback.onError(error);
+            }
+        });
+    }
+
+    private void tryImageModel(final String apiKey, final String prompt,
+                               final java.util.List<String> cands, final int idx,
+                               final AutoImageCallback callback) {
+        final String model = cands.get(idx);
+        generateImage(apiKey, model, prompt, new ImageCallback() {
+            @Override
+            public void onSuccess(String base64png) {
+                callback.onModelUsed(model);
+                callback.onSuccess(base64png);
+            }
+
+            @Override
+            public void onError(String error) {
+                if (idx + 1 < cands.size()) {
+                    tryImageModel(apiKey, prompt, cands, idx + 1, callback);
+                } else {
+                    callback.onError(error);
+                }
+            }
+        });
+    }
+
+    public void generateImage(final String apiKey, final String model, final String prompt, final ImageCallback callback) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -162,7 +239,7 @@ public class GeminiApi {
                     genConfig.put("responseModalities", responseMimeTypes);
                     body.put("generationConfig", genConfig);
 
-                    URL url = new URL(BASE_URL + "gemini-3.1-flash-image:generateContent?key=" + apiKey);
+                    URL url = new URL(BASE_URL + model + ":generateContent?key=" + apiKey);
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof javax.net.ssl.HttpsURLConnection) {
                         try {
@@ -233,7 +310,7 @@ public class GeminiApi {
 
     public void sendMessage(final String apiKey, final String model, final float temperature,
                             final String systemPrompt, final List<Message> history,
-                            final Callback callback) {
+                            final boolean stream, final Callback callback) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -278,7 +355,10 @@ public class GeminiApi {
                     genConfig.put("temperature", (double) temperature);
                     body.put("generationConfig", genConfig);
 
-                    URL url = new URL(BASE_URL + model + ":generateContent?key=" + apiKey);
+                    final boolean doStream = stream && callback instanceof StreamCallback;
+                    URL url = new URL(BASE_URL + model
+                        + (doStream ? ":streamGenerateContent?alt=sse&key=" : ":generateContent?key=")
+                        + apiKey);
                     connection = (HttpURLConnection) url.openConnection();
                     // На Android 2.3 нет TLS 1.2 — включаем принудительно
                     if (connection instanceof HttpsURLConnection) {
@@ -294,7 +374,9 @@ public class GeminiApi {
                     connection.setRequestMethod("POST");
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     connection.setConnectTimeout(15000);
-                    connection.setReadTimeout(15000);
+                    connection.setReadTimeout(doStream ? 60000 : 15000);
+                    // Без gzip, чтобы данные приходили сразу, а не буферизовались
+                    if (doStream) connection.setRequestProperty("Accept-Encoding", "identity");
                     connection.setDoOutput(true);
                     connection.setDoInput(true);
 
@@ -314,6 +396,40 @@ public class GeminiApi {
 
                     if (is == null) {
                         callback.onError("HTTP " + responseCode + " (No response body)");
+                        return;
+                    }
+
+                    if (doStream && responseCode >= 200 && responseCode < 300) {
+                        BufferedReader sbr = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                        StringBuilder acc = new StringBuilder();
+                        String sline;
+                        while ((sline = sbr.readLine()) != null) {
+                            if (!sline.startsWith("data:")) continue;
+                            String payload = sline.substring(5).trim();
+                            if (payload.length() == 0 || payload.equals("[DONE]")) continue;
+                            try {
+                                JSONArray cands = new JSONObject(payload).optJSONArray("candidates");
+                                if (cands == null || cands.length() == 0) continue;
+                                JSONObject cont = cands.getJSONObject(0).optJSONObject("content");
+                                if (cont == null) continue;
+                                JSONArray ps = cont.optJSONArray("parts");
+                                if (ps == null) continue;
+                                boolean changed = false;
+                                for (int k = 0; k < ps.length(); k++) {
+                                    JSONObject pp = ps.getJSONObject(k);
+                                    if (pp.optBoolean("thought", false)) continue;
+                                    String t = pp.optString("text", "");
+                                    if (t.length() > 0) { acc.append(t); changed = true; }
+                                }
+                                if (changed) ((StreamCallback) callback).onPartial(acc.toString());
+                            } catch (JSONException ignored) {}
+                        }
+                        sbr.close();
+                        if (acc.length() == 0) {
+                            callback.onError("Empty response");
+                        } else {
+                            callback.onSuccess(acc.toString());
+                        }
                         return;
                     }
 

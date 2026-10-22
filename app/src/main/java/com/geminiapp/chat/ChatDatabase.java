@@ -189,7 +189,7 @@ public class ChatDatabase extends SQLiteOpenHelper {
             int isGen = cursor.getInt(cursor.getColumnIndex(COL_MSG_IS_GENERATED));
 
             GeminiApi.Message msg;
-            if (imageB64 != null && !imageB64.isEmpty()) {
+            if (imageB64 != null && imageB64.length() > 0) {
                 if (isGen == 1) {
                     msg = new GeminiApi.Message(role, text, imageB64, true);
                 } else {

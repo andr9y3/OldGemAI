@@ -10,6 +10,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.LinearLayout;
@@ -36,6 +37,45 @@ public class ChatHistoryActivity extends Activity {
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
+
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        Button btnSettings = new Button(this);
+        btnSettings.setText(isRu ? "Настройки" : "Settings");
+        Button btnNew = new Button(this);
+        btnNew.setText(isRu ? "Новый чат" : "New chat");
+        Button btnBack = new Button(this);
+        btnBack.setText(isRu ? "К чату" : "Back");
+        buttons.addView(btnSettings, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        buttons.addView(btnNew, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        buttons.addView(btnBack, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        mainLayout.addView(buttons);
+
+        btnSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(ChatHistoryActivity.this, SettingsActivity.class));
+            }
+        });
+        btnNew.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent result = new Intent();
+                result.putExtra("new_chat", true);
+                setResult(RESULT_OK, result);
+                finish();
+            }
+        });
+        btnBack.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                finish();
+            }
+        });
 
         tvEmpty = new TextView(this);
         tvEmpty.setText("Нет сохранённых чатов");
@@ -146,7 +186,7 @@ public class ChatHistoryActivity extends Activity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         String newTitle = input.getText().toString().trim();
-                        if (!newTitle.isEmpty()) {
+                        if (newTitle.length() > 0) {
                             chatDb.renameChat(chatInfo.id, newTitle);
                             loadChats();
                         }

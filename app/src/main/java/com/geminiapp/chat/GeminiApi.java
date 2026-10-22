@@ -11,14 +11,11 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.List;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 
 public class GeminiApi {
 
@@ -28,9 +25,10 @@ public class GeminiApi {
     public static class Message {
         public final String role;
         public final String text;
-        public final String imageBase64; // null если нет картинки
+        public final String imageBase64;
         public final String imageMimeType;
-        public final boolean isGeneratedImage; // картинка сгенерирована моделью
+        public final boolean isGeneratedImage;
+
         public Message(String role, String text) {
             this.role = role;
             this.text = text;
@@ -38,6 +36,7 @@ public class GeminiApi {
             this.imageMimeType = null;
             this.isGeneratedImage = false;
         }
+
         public Message(String role, String text, String imageBase64, String imageMimeType) {
             this.role = role;
             this.text = text;
@@ -45,6 +44,7 @@ public class GeminiApi {
             this.imageMimeType = imageMimeType;
             this.isGeneratedImage = false;
         }
+
         public Message(String role, String text, String imageBase64, boolean isGeneratedImage) {
             this.role = role;
             this.text = text;
@@ -59,7 +59,6 @@ public class GeminiApi {
         void onError(String error);
     }
 
-    // Колбэк с постепенным выводом: onPartial получает весь текст, накопленный к этому моменту
     public interface StreamCallback extends Callback {
         void onPartial(String textSoFar);
     }
@@ -77,17 +76,16 @@ public class GeminiApi {
                 try {
                     URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey + "&pageSize=1000");
                     connection = (HttpURLConnection) url.openConnection();
-                    if (connection instanceof javax.net.ssl.HttpsURLConnection) {
+                    if (connection instanceof HttpsURLConnection) {
                         try {
-                            javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLSv1.2");
+                            SSLContext sc = SSLContext.getInstance("TLSv1.2");
                             sc.init(null, null, null);
-                            ((javax.net.ssl.HttpsURLConnection) connection).setSSLSocketFactory(
-                                new Tls12SocketFactory(sc.getSocketFactory()));
+                            ((HttpsURLConnection) connection).setSSLSocketFactory(new Tls12SocketFactory(sc.getSocketFactory()));
                         } catch (Exception ignored) {}
                     }
                     connection.setRequestMethod("GET");
-                    connection.setConnectTimeout(30000);
-                    connection.setReadTimeout(60000);
+                    connection.setConnectTimeout(20000);
+                    connection.setReadTimeout(30000);
 
                     int responseCode = connection.getResponseCode();
                     InputStream is = responseCode >= 200 && responseCode < 300
@@ -101,7 +99,7 @@ public class GeminiApi {
                     br.close();
 
                     if (responseCode < 200 || responseCode >= 300) {
-                        callback.onError("HTTP " + responseCode + ": " + sb.toString());
+                        callback.onError(formatHttpError(responseCode, sb.toString()));
                         return;
                     }
 
@@ -110,10 +108,9 @@ public class GeminiApi {
                     java.util.List<String> models = new java.util.ArrayList<String>();
                     for (int i = 0; i < arr.length(); i++) {
                         JSONObject m = arr.getJSONObject(i);
-                        // name вида "models/gemini-2.5-flash" — берём только то что после "/"
                         String name = m.getString("name");
                         if (name.startsWith("models/")) name = name.substring(7);
-                        // Фильтруем только те что поддерживают generateContent
+
                         if (m.has("supportedGenerationMethods")) {
                             JSONArray methods = m.getJSONArray("supportedGenerationMethods");
                             boolean supportsGenerate = false;
@@ -136,81 +133,18 @@ public class GeminiApi {
         }).start();
     }
 
+    static String formatHttpError(int code, String body) {
+        try {
+            JSONObject e = new JSONObject(body).getJSONObject("error");
+            return "[" + code + "|" + e.optString("status", "") + "] " + e.getString("message");
+        } catch (Exception ex) {
+            return "HTTP " + code + ": " + body;
+        }
+    }
+
     public interface ImageCallback {
         void onSuccess(String base64png);
         void onError(String error);
-    }
-
-    public interface AutoImageCallback extends ImageCallback {
-        void onModelUsed(String model);
-    }
-
-    /**
-     * API не сообщает, бесплатна ли модель, поэтому подбираем пробой: берём из списка моделей
-     * все, что умеют картинки (в имени "image"), и пробуем по очереди, пока одна не сработает.
-     * Ранее сработавшая модель (preferred) пробуется первой.
-     */
-    public void generateImageAuto(final String apiKey, final String prompt,
-                                  final String preferred, final AutoImageCallback callback) {
-        listModels(apiKey, new ModelsCallback() {
-            @Override
-            public void onSuccess(java.util.List<String> models) {
-                java.util.List<String> cands = new java.util.ArrayList<String>();
-                if (preferred != null && preferred.length() > 0) cands.add(preferred);
-
-                java.util.List<String> found = new java.util.ArrayList<String>();
-                for (String m : models) {
-                    if (m.contains("image") && !m.startsWith("imagen") && !cands.contains(m)) {
-                        found.add(m);
-                    }
-                }
-                // Сначала lite-варианты (дешевле), потом остальные по имени (старые версии раньше)
-                java.util.Collections.sort(found, new java.util.Comparator<String>() {
-                    @Override
-                    public int compare(String a, String b) {
-                        boolean la = a.contains("lite");
-                        boolean lb = b.contains("lite");
-                        if (la != lb) return la ? -1 : 1;
-                        return a.compareTo(b);
-                    }
-                });
-                cands.addAll(found);
-
-                if (cands.isEmpty()) {
-                    callback.onError("No image models found");
-                    return;
-                }
-                if (cands.size() > 5) cands = new java.util.ArrayList<String>(cands.subList(0, 5));
-                tryImageModel(apiKey, prompt, cands, 0, callback);
-            }
-
-            @Override
-            public void onError(String error) {
-                callback.onError(error);
-            }
-        });
-    }
-
-    private void tryImageModel(final String apiKey, final String prompt,
-                               final java.util.List<String> cands, final int idx,
-                               final AutoImageCallback callback) {
-        final String model = cands.get(idx);
-        generateImage(apiKey, model, prompt, new ImageCallback() {
-            @Override
-            public void onSuccess(String base64png) {
-                callback.onModelUsed(model);
-                callback.onSuccess(base64png);
-            }
-
-            @Override
-            public void onError(String error) {
-                if (idx + 1 < cands.size()) {
-                    tryImageModel(apiKey, prompt, cands, idx + 1, callback);
-                } else {
-                    callback.onError(error);
-                }
-            }
-        });
     }
 
     public void generateImage(final String apiKey, final String model, final String prompt, final ImageCallback callback) {
@@ -231,28 +165,27 @@ public class GeminiApi {
                     contents.put(content);
                     body.put("contents", contents);
 
-                    // Необходимо указать что хотим IMAGE в ответе
+                    // ИСПРАВЛЕНИЕ: Используем правильные модальности "TEXT" и "IMAGE"
                     JSONObject genConfig = new JSONObject();
-                    JSONArray responseMimeTypes = new JSONArray();
-                    responseMimeTypes.put("text/plain");
-                    responseMimeTypes.put("image/png");
-                    genConfig.put("responseModalities", responseMimeTypes);
+                    JSONArray responseModalities = new JSONArray();
+                    responseModalities.put("TEXT");
+                    responseModalities.put("IMAGE");
+                    genConfig.put("responseModalities", responseModalities);
                     body.put("generationConfig", genConfig);
 
                     URL url = new URL(BASE_URL + model + ":generateContent?key=" + apiKey);
                     connection = (HttpURLConnection) url.openConnection();
-                    if (connection instanceof javax.net.ssl.HttpsURLConnection) {
+                    if (connection instanceof HttpsURLConnection) {
                         try {
-                            javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLSv1.2");
+                            SSLContext sc = SSLContext.getInstance("TLSv1.2");
                             sc.init(null, null, null);
-                            ((javax.net.ssl.HttpsURLConnection) connection).setSSLSocketFactory(
-                                new Tls12SocketFactory(sc.getSocketFactory()));
+                            ((HttpsURLConnection) connection).setSSLSocketFactory(new Tls12SocketFactory(sc.getSocketFactory()));
                         } catch (Exception ignored) {}
                     }
                     connection.setRequestMethod("POST");
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     connection.setConnectTimeout(30000);
-                    connection.setReadTimeout(120000); // генерация картинок дольше
+                    connection.setReadTimeout(120000); 
                     connection.setDoOutput(true);
                     connection.setDoInput(true);
 
@@ -275,8 +208,7 @@ public class GeminiApi {
 
                     if (responseCode < 200 || responseCode >= 300) {
                         try {
-                            JSONObject err = new JSONObject(sb.toString());
-                            callback.onError(err.getJSONObject("error").getString("message"));
+                            callback.onError(formatHttpError(responseCode, sb.toString()));
                         } catch (Exception e) {
                             callback.onError("HTTP " + responseCode);
                         }
@@ -288,7 +220,6 @@ public class GeminiApi {
                     JSONArray resParts = candidates.getJSONObject(0)
                         .getJSONObject("content").getJSONArray("parts");
 
-                    // Ищем часть с inlineData
                     for (int i = 0; i < resParts.length(); i++) {
                         JSONObject p = resParts.getJSONObject(i);
                         if (p.has("inlineData")) {
@@ -298,7 +229,6 @@ public class GeminiApi {
                         }
                     }
                     callback.onError("No image in response");
-
                 } catch (Throwable t) {
                     callback.onError(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
                 } finally {
@@ -308,9 +238,41 @@ public class GeminiApi {
         }).start();
     }
 
+    // Собирает источники из groundingMetadata (поиск Google): каждый элемент - {название, ссылка}, без повторов
+    private static void collectSources(JSONObject groundingMetadata, List<String[]> out) {
+        if (groundingMetadata == null) return;
+        JSONArray chunks = groundingMetadata.optJSONArray("groundingChunks");
+        if (chunks == null) return;
+        for (int i = 0; i < chunks.length(); i++) {
+            JSONObject chunk = chunks.optJSONObject(i);
+            if (chunk == null) continue;
+            JSONObject web = chunk.optJSONObject("web");
+            if (web == null) continue;
+            String uri = web.optString("uri", "");
+            if (uri.length() == 0) continue;
+            boolean dup = false;
+            for (int j = 0; j < out.size(); j++) {
+                if (out.get(j)[1].equals(uri)) { dup = true; break; }
+            }
+            if (!dup) out.add(new String[]{web.optString("title", uri), uri});
+        }
+    }
+
+    private static String formatSources(List<String[]> sources, String title) {
+        if (sources.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n\n").append(title).append(":");
+        for (int i = 0; i < sources.size(); i++) {
+            String[] s = sources.get(i);
+            sb.append("\n").append(i + 1).append(". ").append(s[0]).append(" - ").append(s[1]);
+        }
+        return sb.toString();
+    }
+
     public void sendMessage(final String apiKey, final String model, final float temperature,
                             final String systemPrompt, final List<Message> history,
-                            final boolean stream, final Callback callback) {
+                            final boolean stream, final boolean search, final String sourcesTitle,
+                            final Callback callback) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -318,7 +280,7 @@ public class GeminiApi {
                 try {
                     JSONObject body = new JSONObject();
 
-                    if (systemPrompt != null && !systemPrompt.isEmpty()) {
+                    if (systemPrompt != null && systemPrompt.length() > 0) {
                         JSONObject sysInst = new JSONObject();
                         JSONObject sysPart = new JSONObject();
                         sysPart.put("text", systemPrompt);
@@ -334,8 +296,7 @@ public class GeminiApi {
                         JSONObject content = new JSONObject();
                         content.put("role", msg.role);
                         JSONArray parts = new JSONArray();
-                        // Если есть картинка — добавляем inline_data
-                        if (msg.imageBase64 != null && !msg.imageBase64.isEmpty()) {
+                        if (msg.imageBase64 != null && msg.imageBase64.length() > 0) {
                             JSONObject imgPart = new JSONObject();
                             JSONObject inlineData = new JSONObject();
                             inlineData.put("mime_type", msg.imageMimeType != null ? msg.imageMimeType : "image/jpeg");
@@ -344,7 +305,7 @@ public class GeminiApi {
                             parts.put(imgPart);
                         }
                         JSONObject part = new JSONObject();
-                        part.put("text", msg.text.isEmpty() ? " " : msg.text);
+                        part.put("text", msg.text.length() == 0 ? " " : msg.text);
                         parts.put(part);
                         content.put("parts", parts);
                         contents.put(content);
@@ -353,6 +314,13 @@ public class GeminiApi {
 
                     JSONObject genConfig = new JSONObject();
                     genConfig.put("temperature", (double) temperature);
+                    if (search) {
+                        JSONArray toolsArr = new JSONArray();
+                        JSONObject searchTool = new JSONObject();
+                        searchTool.put("google_search", new JSONObject());
+                        toolsArr.put(searchTool);
+                        body.put("tools", toolsArr);
+                    }
                     body.put("generationConfig", genConfig);
 
                     final boolean doStream = stream && callback instanceof StreamCallback;
@@ -360,22 +328,17 @@ public class GeminiApi {
                         + (doStream ? ":streamGenerateContent?alt=sse&key=" : ":generateContent?key=")
                         + apiKey);
                     connection = (HttpURLConnection) url.openConnection();
-                    // На Android 2.3 нет TLS 1.2 — включаем принудительно
                     if (connection instanceof HttpsURLConnection) {
                         try {
                             SSLContext sc = SSLContext.getInstance("TLSv1.2");
                             sc.init(null, null, null);
-                            ((HttpsURLConnection) connection).setSSLSocketFactory(
-                                new Tls12SocketFactory(sc.getSocketFactory()));
-                        } catch (Exception ignored) {
-                            // Если не удалось — пробуем без патча (на новых Android сработает)
-                        }
+                            ((HttpsURLConnection) connection).setSSLSocketFactory(new Tls12SocketFactory(sc.getSocketFactory()));
+                        } catch (Exception ignored) {}
                     }
                     connection.setRequestMethod("POST");
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    connection.setConnectTimeout(15000);
-                    connection.setReadTimeout(doStream ? 60000 : 15000);
-                    // Без gzip, чтобы данные приходили сразу, а не буферизовались
+                    connection.setConnectTimeout(20000);
+                    connection.setReadTimeout(60000);
                     if (doStream) connection.setRequestProperty("Accept-Encoding", "identity");
                     connection.setDoOutput(true);
                     connection.setDoInput(true);
@@ -387,21 +350,18 @@ public class GeminiApi {
                     os.close();
 
                     int responseCode = connection.getResponseCode();
-                    InputStream is;
-                    if (responseCode >= 200 && responseCode < 300) {
-                        is = connection.getInputStream();
-                    } else {
-                        is = connection.getErrorStream();
-                    }
+                    InputStream is = responseCode >= 200 && responseCode < 300
+                        ? connection.getInputStream() : connection.getErrorStream();
 
                     if (is == null) {
-                        callback.onError("HTTP " + responseCode + " (No response body)");
+                        callback.onError("HTTP " + responseCode);
                         return;
                     }
 
                     if (doStream && responseCode >= 200 && responseCode < 300) {
                         BufferedReader sbr = new BufferedReader(new InputStreamReader(is, "UTF-8"));
                         StringBuilder acc = new StringBuilder();
+                        List<String[]> sources = new ArrayList<String[]>();
                         String sline;
                         while ((sline = sbr.readLine()) != null) {
                             if (!sline.startsWith("data:")) continue;
@@ -410,6 +370,7 @@ public class GeminiApi {
                             try {
                                 JSONArray cands = new JSONObject(payload).optJSONArray("candidates");
                                 if (cands == null || cands.length() == 0) continue;
+                                collectSources(cands.getJSONObject(0).optJSONObject("groundingMetadata"), sources);
                                 JSONObject cont = cands.getJSONObject(0).optJSONObject("content");
                                 if (cont == null) continue;
                                 JSONArray ps = cont.optJSONArray("parts");
@@ -425,11 +386,8 @@ public class GeminiApi {
                             } catch (JSONException ignored) {}
                         }
                         sbr.close();
-                        if (acc.length() == 0) {
-                            callback.onError("Empty response");
-                        } else {
-                            callback.onSuccess(acc.toString());
-                        }
+                        if (acc.length() == 0) callback.onError("Empty response");
+                        else callback.onSuccess(acc.toString() + formatSources(sources, sourcesTitle));
                         return;
                     }
 
@@ -445,9 +403,7 @@ public class GeminiApi {
 
                     if (responseCode < 200 || responseCode >= 300) {
                         try {
-                            JSONObject err = new JSONObject(responseBody);
-                            String msg = err.getJSONObject("error").getString("message");
-                            callback.onError(msg);
+                            callback.onError(formatHttpError(responseCode, responseBody));
                         } catch (Exception e) {
                             callback.onError("HTTP " + responseCode);
                         }
@@ -455,25 +411,37 @@ public class GeminiApi {
                     }
 
                     JSONObject json = new JSONObject(responseBody);
-                    String text = json
-                        .getJSONArray("candidates")
-                        .getJSONObject(0)
-                        .getJSONObject("content")
-                        .getJSONArray("parts")
-                        .getJSONObject(0)
-                        .getString("text");
+                    StringBuilder txtBuilder = new StringBuilder();
+                    List<String[]> srcList = new ArrayList<String[]>();
+                    JSONArray candArr = json.optJSONArray("candidates");
+                    if (candArr != null && candArr.length() > 0) {
+                        JSONObject cand0 = candArr.getJSONObject(0);
+                        JSONObject cont0 = cand0.optJSONObject("content");
+                        if (cont0 != null) {
+                            JSONArray ps0 = cont0.optJSONArray("parts");
+                            if (ps0 != null) {
+                                for (int k = 0; k < ps0.length(); k++) {
+                                    JSONObject pp0 = ps0.getJSONObject(k);
+                                    if (pp0.optBoolean("thought", false)) continue;
+                                    txtBuilder.append(pp0.optString("text", ""));
+                                }
+                            }
+                        }
+                        collectSources(cand0.optJSONObject("groundingMetadata"), srcList);
+                    }
+                    if (txtBuilder.length() == 0) {
+                        callback.onError("Empty response");
+                        return;
+                    }
+                    String text = txtBuilder.toString() + formatSources(srcList, sourcesTitle);
 
                     callback.onSuccess(text);
                 } catch (Throwable t) {
                     String errLog = t.getMessage();
-                    if (errLog == null) {
-                        errLog = t.getClass().getSimpleName();
-                    }
+                    if (errLog == null) errLog = t.getClass().getSimpleName();
                     callback.onError(errLog);
                 } finally {
-                    if (connection != null) {
-                        connection.disconnect();
-                    }
+                    if (connection != null) connection.disconnect();
                 }
             }
         }).start();

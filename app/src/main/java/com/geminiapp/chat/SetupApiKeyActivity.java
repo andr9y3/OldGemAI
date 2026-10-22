@@ -68,7 +68,7 @@ public class SetupApiKeyActivity extends Activity {
 
         etApiKey = new EditText(this);
         etApiKey.setHint(isRu ? "Вставьте API ключ сюда" : "Paste API key here");
-        etApiKey.setInputType(InputType.TYPE_CLASS_TEXT);
+        etApiKey.setSingleLine(true);
         layout.addView(etApiKey);
 
         Button btnSave = new Button(this);

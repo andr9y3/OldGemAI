@@ -27,6 +27,10 @@ public class SettingsActivity extends Activity {
     private EditText etApiKey;
     private Spinner spinnerModel;
     private Spinner spinnerLanguage;
+    private Spinner spinnerImageModel;
+    private android.widget.CheckBox cbRememberImage;
+    private List<String> imageModelList = new ArrayList<String>();
+    private ArrayAdapter<String> imageModelAdapter;
     private SeekBar seekTemperature;
     private TextView tvTemperatureValue;
     private EditText etSystemPrompt;
@@ -59,7 +63,7 @@ public class SettingsActivity extends Activity {
         layout.addView(labelKey);
 
         etApiKey = new EditText(this);
-        etApiKey.setInputType(InputType.TYPE_CLASS_TEXT);
+        etApiKey.setSingleLine(true);
         layout.addView(etApiKey);
 
         TextView labelModel = new TextView(this);
@@ -76,6 +80,27 @@ public class SettingsActivity extends Activity {
 
         spinnerModel = new Spinner(this);
         layout.addView(spinnerModel);
+
+        TextView labelImageModel = new TextView(this);
+        labelImageModel.setText(isRu ? "Модель для картинок" : "Image model");
+        layout.addView(labelImageModel);
+
+        TextView tvImageWarn = new TextView(this);
+        tvImageWarn.setText(isRu
+            ? "На бесплатном тарифе (Free) ни одна модель не может генерировать картинки."
+            : "On the Free plan no model can generate images.");
+        tvImageWarn.setTextColor(0xFFFF8800);
+        tvImageWarn.setPadding(0, 4, 0, 4);
+        layout.addView(tvImageWarn);
+
+        spinnerImageModel = new Spinner(this);
+        layout.addView(spinnerImageModel);
+
+        cbRememberImage = new android.widget.CheckBox(this);
+        cbRememberImage.setText(isRu ? "Запомнить выбор (не спрашивать при /image)"
+                                     : "Remember choice (do not ask on /image)");
+        cbRememberImage.setChecked(prefs.isImageRemember());
+        layout.addView(cbRememberImage);
 
         TextView labelLang = new TextView(this);
         labelLang.setText(isRu ? "Язык" : "Language");
@@ -99,7 +124,7 @@ public class SettingsActivity extends Activity {
         layout.addView(labelPrompt);
 
         etSystemPrompt = new EditText(this);
-        etSystemPrompt.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        
         layout.addView(etSystemPrompt);
 
         final android.widget.CheckBox cbStream = new android.widget.CheckBox(this);
@@ -120,6 +145,11 @@ public class SettingsActivity extends Activity {
         tvBug.setTextColor(0xFF33B5E5);
         layout.addView(tvBug);
 
+        TextView tvVersion = new TextView(this);
+        tvVersion.setTextColor(0xFF888888);
+        tvVersion.setPadding(0, 20, 0, 10);
+        layout.addView(tvVersion);
+
         setContentView(scrollView);
 
         // Инициализируем адаптер с текущей моделью как заглушкой
@@ -128,6 +158,31 @@ public class SettingsActivity extends Activity {
             android.R.layout.simple_spinner_item, modelList);
         modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerModel.setAdapter(modelAdapter);
+
+        // Модели для картинок: пока список не загружен, показываем сохранённую модель
+        imageModelList.add("");
+        String savedImageModel = prefs.getImageModel();
+        if (savedImageModel.length() > 0) imageModelList.add(savedImageModel);
+        imageModelAdapter = new ArrayAdapter<String>(this,
+            android.R.layout.simple_spinner_item, imageModelList);
+        imageModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerImageModel.setAdapter(imageModelAdapter);
+        if (savedImageModel.length() > 0) spinnerImageModel.setSelection(1);
+
+        // Галка "Запомнить" без выбранной модели не имеет смысла; при включённой галке список заблокирован
+        if (savedImageModel.length() == 0) cbRememberImage.setChecked(false);
+        spinnerImageModel.setEnabled(!cbRememberImage.isChecked());
+        cbRememberImage.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean checked) {
+                if (checked && spinnerImageModel.getSelectedItemPosition() <= 0) {
+                    b.setChecked(false);
+                    Toast.makeText(SettingsActivity.this, isRu ? "Сначала выберите модель" : "Select a model first", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                spinnerImageModel.setEnabled(!checked);
+            }
+        });
 
         etApiKey.setText(prefs.getApiKey());
         etSystemPrompt.setText(prefs.getSystemPrompt());
@@ -155,7 +210,7 @@ public class SettingsActivity extends Activity {
             @Override
             public void run() {
                 final String key = etApiKey.getText().toString().trim();
-                if (key.isEmpty()) {
+                if (key.length() == 0) {
                     tvModelStatus.setText(isRu ? "Введите API ключ для загрузки моделей" : "Enter API key to load models");
                     return;
                 }
@@ -177,6 +232,23 @@ public class SettingsActivity extends Activity {
                                         break;
                                     }
                                 }
+                                String curImg = prefs.getImageModel();
+                                imageModelList.clear();
+                                imageModelList.add("");
+                                int imgSel = 0;
+                                for (int i = 0; i < models.size(); i++) {
+                                    String m = models.get(i);
+                                    if (m.contains("image")) {
+                                        imageModelList.add(m);
+                                        if (m.equals(curImg)) imgSel = imageModelList.size() - 1;
+                                    }
+                                }
+                                if (curImg.length() > 0 && imgSel == 0) {
+                                    imageModelList.add(curImg);
+                                    imgSel = imageModelList.size() - 1;
+                                }
+                                imageModelAdapter.notifyDataSetChanged();
+                                spinnerImageModel.setSelection(imgSel);
                                 tvModelStatus.setText((isRu ? "Найдено моделей: " : "Models found: ") + models.size());
                                 btnLoadModels.setEnabled(true);
                             }
@@ -215,12 +287,21 @@ public class SettingsActivity extends Activity {
                 prefs.setTemperature(seekTemperature.getProgress() / 10f);
                 prefs.setSystemPrompt(etSystemPrompt.getText().toString().trim());
                 prefs.setStream(cbStream.isChecked());
+                int imgPos = spinnerImageModel.getSelectedItemPosition();
+                prefs.setImageModel(imgPos > 0 && imgPos < imageModelList.size() ? imageModelList.get(imgPos) : "");
+                prefs.setImageRemember(cbRememberImage.isChecked() && imgPos > 0);
 
                 boolean nowRu = Prefs.LANG_RU.equals(prefs.getLanguage());
                 Toast.makeText(SettingsActivity.this, nowRu ? "Сохранено" : "Saved", Toast.LENGTH_SHORT).show();
                 finish();
             }
         });
+
+        String versionName = "?";
+        try {
+            versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {}
+        tvVersion.setText((isRu ? "Версия: " : "Version: ") + versionName);
 
         tvGithub.setText("GitHub: github.com/andr9y3/OldGemAI");
         tvGithub.setTextColor(0xFF33B5E5);

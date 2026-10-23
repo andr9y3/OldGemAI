@@ -74,7 +74,7 @@ public class GeminiApi {
             public void run() {
                 HttpURLConnection connection = null;
                 try {
-                    URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey + "&pageSize=1000");
+                    URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof HttpsURLConnection) {
                         try {
@@ -84,6 +84,7 @@ public class GeminiApi {
                         } catch (Exception ignored) {}
                     }
                     connection.setRequestMethod("GET");
+                    connection.setRequestProperty("x-goog-api-key", apiKey);
                     connection.setConnectTimeout(20000);
                     connection.setReadTimeout(30000);
 
@@ -173,7 +174,7 @@ public class GeminiApi {
                     genConfig.put("responseModalities", responseModalities);
                     body.put("generationConfig", genConfig);
 
-                    URL url = new URL(BASE_URL + model + ":generateContent?key=" + apiKey);
+                    URL url = new URL(BASE_URL + model + ":generateContent");
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof HttpsURLConnection) {
                         try {
@@ -185,6 +186,7 @@ public class GeminiApi {
                     connection.setRequestMethod("POST");
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     connection.setConnectTimeout(30000);
+                    connection.setRequestProperty("x-goog-api-key", apiKey);
                     connection.setReadTimeout(120000); 
                     connection.setDoOutput(true);
                     connection.setDoInput(true);
@@ -325,8 +327,8 @@ public class GeminiApi {
 
                     final boolean doStream = stream && callback instanceof StreamCallback;
                     URL url = new URL(BASE_URL + model
-                        + (doStream ? ":streamGenerateContent?alt=sse&key=" : ":generateContent?key=")
-                        + apiKey);
+                        + (doStream ? ":streamGenerateContent?alt=sse" : ":generateContent")
+                        );
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof HttpsURLConnection) {
                         try {
@@ -339,6 +341,7 @@ public class GeminiApi {
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     connection.setConnectTimeout(20000);
                     connection.setReadTimeout(60000);
+                    connection.setRequestProperty("x-goog-api-key", apiKey);
                     if (doStream) connection.setRequestProperty("Accept-Encoding", "identity");
                     connection.setDoOutput(true);
                     connection.setDoInput(true);

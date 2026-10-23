@@ -6,9 +6,11 @@ import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
+import android.text.style.BackgroundColorSpan;
 import android.text.style.RelativeSizeSpan;
 import android.text.style.StrikethroughSpan;
 import android.text.style.StyleSpan;
+import android.text.style.TypefaceSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -20,6 +22,9 @@ import android.widget.TextView;
 import java.util.List;
 
 public class ChatAdapter extends BaseAdapter {
+
+    private static final int FLAG = Spannable.SPAN_EXCLUSIVE_EXCLUSIVE;
+    private static final int CODE_BG = 0x22000000;
 
     private final Context context;
     private final List<GeminiApi.Message> messages;
@@ -100,13 +105,13 @@ public class ChatAdapter extends BaseAdapter {
         }
 
         TextView tv = new TextView(context);
-        
+
         if (!isUser && msg.text != null) {
             tv.setText(parseMarkdown(msg.text));
         } else {
             tv.setText(msg.text);
         }
-        
+
         tv.setTextSize(15);
         tv.setPadding(dp(12), dp(8), dp(12), dp(8));
 
@@ -125,118 +130,219 @@ public class ChatAdapter extends BaseAdapter {
     }
 
     /**
-     * Парсер Markdown, который применяет стили (жирный, курсив) и заменяет теги.
-     * Обрабатывает заголовки, списки, **жирный**, *курсив*, ~~зачеркнутый~~.
+     * Построчный разбор Markdown: заголовки (# ... ######, обязательно с пробелом после #),
+     * списки (*, -, + с учётом отступа), блоки кода ```...```, а внутри строк -
+     * `код`, **жирный**, *курсив*, ***жирный курсив***, ~~зачёркнутый~~ и экранирование через \.
      */
     private CharSequence parseMarkdown(String text) {
         if (text == null) return "";
 
         SpannableStringBuilder builder = new SpannableStringBuilder();
         String[] lines = text.split("\n", -1);
+        boolean inCode = false;
+        boolean wroteLine = false;
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
+
+            // Строка-ограждение блока кода: сама не выводится, только переключает режим
+            if (line.trim().startsWith("```")) {
+                inCode = !inCode;
+                continue;
+            }
+
+            if (wroteLine) builder.append("\n");
+            wroteLine = true;
             int lineStart = builder.length();
 
-            // 1. Заголовки (#, ##, ###)
-            if (line.startsWith("###")) {
-                builder.append(line.substring(3).trim());
-                builder.setSpan(new StyleSpan(Typeface.BOLD), lineStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                builder.setSpan(new RelativeSizeSpan(1.2f), lineStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } else if (line.startsWith("##")) {
-                builder.append(line.substring(2).trim());
-                builder.setSpan(new StyleSpan(Typeface.BOLD), lineStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                builder.setSpan(new RelativeSizeSpan(1.3f), lineStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } else if (line.startsWith("#")) {
-                builder.append(line.substring(1).trim());
-                builder.setSpan(new StyleSpan(Typeface.BOLD), lineStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                builder.setSpan(new RelativeSizeSpan(1.4f), lineStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } 
-            // 2. Списки (*, -, +)
-            else if (line.startsWith("* ") || line.startsWith("- ") || line.startsWith("+ ")) {
-                builder.append("• ");
-                parseInlineMarkdown(line.substring(2), builder);
-            } 
-            // 3. Обычный текст
-            else {
-                parseInlineMarkdown(line, builder);
+            // Внутри блока кода ничего не разбираем
+            if (inCode) {
+                builder.append(line);
+                if (builder.length() > lineStart) {
+                    builder.setSpan(new TypefaceSpan("monospace"), lineStart, builder.length(), FLAG);
+                    builder.setSpan(new BackgroundColorSpan(CODE_BG), lineStart, builder.length(), FLAG);
+                }
+                continue;
             }
 
-            if (i < lines.length - 1) {
-                builder.append("\n");
+            // Заголовки: 1-6 символов # и обязательно пробел после них
+            int hashes = 0;
+            while (hashes < line.length() && line.charAt(hashes) == '#') hashes++;
+            if (hashes >= 1 && hashes <= 6 && hashes < line.length() && line.charAt(hashes) == ' ') {
+                parseInlineMarkdown(line.substring(hashes + 1).trim(), builder);
+                int end = builder.length();
+                if (end > lineStart) {
+                    builder.setSpan(new StyleSpan(Typeface.BOLD), lineStart, end, FLAG);
+                    builder.setSpan(new RelativeSizeSpan(headingScale(hashes)), lineStart, end, FLAG);
+                }
+                continue;
             }
+
+            // Списки (*, -, +), в том числе вложенные с отступом
+            int indent = 0;
+            while (indent < line.length()
+                    && (line.charAt(indent) == ' ' || line.charAt(indent) == '\t')) {
+                indent++;
+            }
+            String rest = line.substring(indent);
+            if (rest.startsWith("* ") || rest.startsWith("- ") || rest.startsWith("+ ")) {
+                builder.append(line.substring(0, indent));
+                builder.append("\u2022 ");
+                parseInlineMarkdown(rest.substring(2), builder);
+                continue;
+            }
+
+            // Обычный текст
+            parseInlineMarkdown(line, builder);
         }
         return builder;
     }
 
+    private static float headingScale(int level) {
+        if (level == 1) return 1.4f;
+        if (level == 2) return 1.3f;
+        if (level == 3) return 1.2f;
+        return 1.1f;
+    }
+
     /**
-     * Разбирает строку на наличие **жирного**, *курсива* и ~~зачеркнутого~~.
-     * Работает без сторонних библиотек.
+     * Разбирает строку и дописывает результат в out.
+     * Маркер открывает форматирование, только если сразу после него не пробел,
+     * а закрывает, только если сразу перед ним не пробел. Поэтому "2 * 3 * 4" остаётся текстом.
      */
-    private void parseInlineMarkdown(String line, SpannableStringBuilder builder) {
-        int len = line.length();
+    private void parseInlineMarkdown(String s, SpannableStringBuilder out) {
+        int len = s.length();
         int i = 0;
-        int currentStart = 0;
+        int plainStart = 0;
 
         while (i < len) {
-            // Ищем ** (жирный)
-            if (i + 1 < len && line.charAt(i) == '*' && line.charAt(i + 1) == '*') {
-                int endBold = line.indexOf("**", i + 2);
-                if (endBold != -1) {
-                    // Добавляем текст до звездочек
-                    builder.append(line.substring(currentStart, i));
-                    // Добавляем жирный текст
-                    int bStart = builder.length();
-                    builder.append(line.substring(i + 2, endBold));
-                    builder.setSpan(new StyleSpan(Typeface.BOLD), bStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    
-                    i = endBold + 2;
-                    currentStart = i;
+            char c = s.charAt(i);
+
+            // Экранирование: \* \_ \` \~ \# \\ - слэш убираем, символ оставляем как текст
+            if (c == '\\' && i + 1 < len && "\\*_`~#".indexOf(s.charAt(i + 1)) >= 0) {
+                out.append(s.substring(plainStart, i));
+                plainStart = i + 1;
+                i += 2;
+                continue;
+            }
+
+            // `код`
+            if (c == '`') {
+                int end = s.indexOf('`', i + 1);
+                if (end > i + 1) {
+                    out.append(s.substring(plainStart, i));
+                    int st = out.length();
+                    out.append(s.substring(i + 1, end));
+                    out.setSpan(new TypefaceSpan("monospace"), st, out.length(), FLAG);
+                    out.setSpan(new BackgroundColorSpan(CODE_BG), st, out.length(), FLAG);
+                    i = end + 1;
+                    plainStart = i;
+                    continue;
+                }
+                i++;
+                continue;
+            }
+
+            // ***жирный курсив***
+            if (c == '*' && s.startsWith("***", i) && i + 3 < len
+                    && !Character.isWhitespace(s.charAt(i + 3))) {
+                int end = findClosing(s, "***", i + 3);
+                if (end > 0) {
+                    out.append(s.substring(plainStart, i));
+                    int st = out.length();
+                    parseInlineMarkdown(s.substring(i + 3, end), out);
+                    out.setSpan(new StyleSpan(Typeface.BOLD_ITALIC), st, out.length(), FLAG);
+                    i = end + 3;
+                    plainStart = i;
                     continue;
                 }
             }
-            
-            // Ищем * (курсив)
-            if (line.charAt(i) == '*') {
-                int endItalic = line.indexOf("*", i + 1);
-                // Проверяем, что это не начало ** (жирного)
-                boolean isBoldStart = (i + 1 < len && line.charAt(i + 1) == '*');
-                if (!isBoldStart && endItalic != -1) {
-                     // Проверяем, что закрывающая тоже одиночная
-                    boolean isEndBold = (endItalic + 1 < len && line.charAt(endItalic + 1) == '*');
-                    if (!isEndBold) {
-                        builder.append(line.substring(currentStart, i));
-                        int iStart = builder.length();
-                        builder.append(line.substring(i + 1, endItalic));
-                        builder.setSpan(new StyleSpan(Typeface.ITALIC), iStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        
-                        i = endItalic + 1;
-                        currentStart = i;
+
+            // **жирный**
+            if (c == '*' && i + 1 < len && s.charAt(i + 1) == '*') {
+                if (i + 2 < len && !Character.isWhitespace(s.charAt(i + 2))) {
+                    int end = findClosing(s, "**", i + 2);
+                    if (end > 0) {
+                        out.append(s.substring(plainStart, i));
+                        int st = out.length();
+                        parseInlineMarkdown(s.substring(i + 2, end), out);
+                        out.setSpan(new StyleSpan(Typeface.BOLD), st, out.length(), FLAG);
+                        i = end + 2;
+                        plainStart = i;
                         continue;
                     }
                 }
+                // Не открылось как жирный: обе звёздочки остаются текстом
+                i += 2;
+                continue;
             }
 
-            // Ищем ~~ (зачеркнутый)
-            if (i + 1 < len && line.charAt(i) == '~' && line.charAt(i + 1) == '~') {
-                int endStrike = line.indexOf("~~", i + 2);
-                if (endStrike != -1) {
-                    builder.append(line.substring(currentStart, i));
-                    int sStart = builder.length();
-                    builder.append(line.substring(i + 2, endStrike));
-                    builder.setSpan(new StrikethroughSpan(), sStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    
-                    i = endStrike + 2;
-                    currentStart = i;
-                    continue;
+            // *курсив* (не открываем внутри слова, чтобы 2*3*4 не ломалось)
+            if (c == '*') {
+                boolean opensWord = i + 1 < len && !Character.isWhitespace(s.charAt(i + 1));
+                boolean afterWord = i > 0 && Character.isLetterOrDigit(s.charAt(i - 1));
+                if (opensWord && !afterWord) {
+                    int end = findClosing(s, "*", i + 1);
+                    if (end > 0) {
+                        out.append(s.substring(plainStart, i));
+                        int st = out.length();
+                        parseInlineMarkdown(s.substring(i + 1, end), out);
+                        out.setSpan(new StyleSpan(Typeface.ITALIC), st, out.length(), FLAG);
+                        i = end + 1;
+                        plainStart = i;
+                        continue;
+                    }
                 }
+                i++;
+                continue;
+            }
+
+            // ~~зачёркнутый~~
+            if (c == '~' && i + 1 < len && s.charAt(i + 1) == '~') {
+                if (i + 2 < len && !Character.isWhitespace(s.charAt(i + 2))) {
+                    int end = findClosing(s, "~~", i + 2);
+                    if (end > 0) {
+                        out.append(s.substring(plainStart, i));
+                        int st = out.length();
+                        parseInlineMarkdown(s.substring(i + 2, end), out);
+                        out.setSpan(new StrikethroughSpan(), st, out.length(), FLAG);
+                        i = end + 2;
+                        plainStart = i;
+                        continue;
+                    }
+                }
+                i += 2;
+                continue;
             }
 
             i++;
         }
-        
-        // Добавляем оставшийся текст
-        builder.append(line.substring(currentStart));
+
+        out.append(s.substring(plainStart));
+    }
+
+    /**
+     * Ищет закрывающий маркер: содержимое не пустое, перед маркером не пробел.
+     * Для одиночной * пропускает пары ** (они принадлежат жирному).
+     * Возвращает индекс маркера или -1.
+     */
+    private static int findClosing(String s, String delim, int from) {
+        int len = s.length();
+        boolean single = delim.length() == 1 && delim.charAt(0) == '*';
+        int idx = from;
+        while (idx < len) {
+            idx = s.indexOf(delim, idx);
+            if (idx < 0) return -1;
+            if (single && idx + 1 < len && s.charAt(idx + 1) == '*') {
+                idx += 2;
+                continue;
+            }
+            if (idx > from && !Character.isWhitespace(s.charAt(idx - 1))) {
+                return idx;
+            }
+            idx += delim.length();
+        }
+        return -1;
     }
 
     @SuppressWarnings("deprecation")
@@ -249,7 +355,9 @@ public class ChatAdapter extends BaseAdapter {
                         context.getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm == null) return false;
                 cm.setText(text);
-                android.widget.Toast.makeText(context, "Скопировано", android.widget.Toast.LENGTH_SHORT).show();
+                boolean ru = Prefs.LANG_RU.equals(new Prefs(context).getLanguage());
+                android.widget.Toast.makeText(context, ru ? "Скопировано" : "Copied",
+                        android.widget.Toast.LENGTH_SHORT).show();
                 return true;
             }
         });

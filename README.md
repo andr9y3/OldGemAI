@@ -139,6 +139,16 @@ Google Search: when the Search checkbox in Tools is ticked, the request gets `"t
 
 The model list request uses `pageSize=1000` so that image models are not cut off by the default page size.
 
+The API key is sent in the `x-goog-api-key` request header, as Google's REST reference recommends, and never as a `?key=` URL parameter, so it does not end up in URLs, proxy logs or exception messages.
+
+## Privacy and Security
+
+- The API key is stored in the app's private SharedPreferences in plain text. Android Keystore is not available on the old Android versions this app targets, so encryption is not used; the app sandbox is the only protection.
+- Chats (including attached and generated images) are stored unencrypted in a local SQLite database inside the app's private storage.
+- Android backup is disabled (`allowBackup="false"`), so the key and chats are not copied to cloud or adb backups.
+- The whole conversation history, including images, is sent to Google's servers with every request.
+- If you use a rooted device, other apps with root access can read the key and chats.
+
 ## Screenshots
 
 <img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/25b9e920-b721-4b26-be03-535c02e1bc2b" />

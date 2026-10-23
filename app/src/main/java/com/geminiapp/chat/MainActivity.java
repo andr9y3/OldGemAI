@@ -410,7 +410,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 is.close();
 
                 if (original == null) {
-                    Toast.makeText(this, "Не удалось прочитать изображение", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, (Prefs.LANG_RU.equals(prefs.getLanguage()) ? "Не удалось прочитать изображение" : "Could not read the image"), Toast.LENGTH_SHORT).show();
                     return;
                 }
 
@@ -428,7 +428,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 attachPreviewLayout.setVisibility(View.VISIBLE);
 
             } catch (Exception e) {
-                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, (Prefs.LANG_RU.equals(prefs.getLanguage()) ? "Ошибка: " : "Error: ") + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -481,7 +481,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         if (currentChatId == -1 && !messages.isEmpty()) {
             String preview = messages.get(0).text != null && messages.get(0).text.length() > 0
                 ? messages.get(0).text.substring(0, Math.min(50, messages.get(0).text.length()))
-                : "Чат";
+                : (Prefs.LANG_RU.equals(prefs.getLanguage()) ? "Чат" : "Chat");
             currentChatId = chatDb.createChat(preview);
             PendingState.chatId = currentChatId;
         }

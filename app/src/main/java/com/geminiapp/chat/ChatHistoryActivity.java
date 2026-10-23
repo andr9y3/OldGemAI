@@ -26,6 +26,7 @@ public class ChatHistoryActivity extends Activity {
     private TextView tvEmpty;
     private List<ChatDatabase.ChatInfo> chatList;
     private ArrayAdapter<String> adapter;
+    private boolean isRu;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,7 +39,7 @@ public class ChatHistoryActivity extends Activity {
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
 
-        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
         LinearLayout buttons = new LinearLayout(this);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         Button btnSettings = new Button(this);
@@ -78,7 +79,7 @@ public class ChatHistoryActivity extends Activity {
         });
 
         tvEmpty = new TextView(this);
-        tvEmpty.setText("Нет сохранённых чатов");
+        tvEmpty.setText(isRu ? "Нет сохранённых чатов" : "No saved chats");
         tvEmpty.setPadding(20, 20, 20, 20);
         tvEmpty.setTextSize(16);
         mainLayout.addView(tvEmpty);
@@ -89,7 +90,7 @@ public class ChatHistoryActivity extends Activity {
         mainLayout.addView(lvChats, listParams);
 
         setContentView(mainLayout);
-        setTitle("История чатов");
+        setTitle(isRu ? "История чатов" : "Chat history");
 
         loadChats();
 
@@ -152,7 +153,9 @@ public class ChatHistoryActivity extends Activity {
 
         final ChatDatabase.ChatInfo chatInfo = chatList.get(position);
 
-        CharSequence[] items = {"Открыть", "Переименовать", "Удалить"};
+        CharSequence[] items = isRu
+            ? new CharSequence[]{"Открыть", "Переименовать", "Удалить"}
+            : new CharSequence[]{"Open", "Rename", "Delete"};
 
         new AlertDialog.Builder(this)
                 .setTitle(chatInfo.title)
@@ -180,7 +183,7 @@ public class ChatHistoryActivity extends Activity {
         input.setText(chatInfo.title);
 
         new AlertDialog.Builder(this)
-                .setTitle("Переименовать чат")
+                .setTitle(isRu ? "Переименовать чат" : "Rename chat")
                 .setView(input)
                 .setPositiveButton("OK", new DialogInterface.OnClickListener() {
                     @Override
@@ -192,7 +195,7 @@ public class ChatHistoryActivity extends Activity {
                         }
                     }
                 })
-                .setNegativeButton("Отмена", null)
+                .setNegativeButton(isRu ? "Отмена" : "Cancel", null)
                 .show();
     }
 
@@ -202,22 +205,22 @@ public class ChatHistoryActivity extends Activity {
         final ChatDatabase.ChatInfo chatInfo = chatList.get(position);
 
         new AlertDialog.Builder(this)
-                .setTitle("Удалить чат?")
+                .setTitle(isRu ? "Удалить чат?" : "Delete chat?")
                 .setMessage(chatInfo.title)
-                .setPositiveButton("Удалить", new DialogInterface.OnClickListener() {
+                .setPositiveButton(isRu ? "Удалить" : "Delete", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         chatDb.deleteChat(chatInfo.id);
                         loadChats();
                     }
                 })
-                .setNegativeButton("Отмена", null)
+                .setNegativeButton(isRu ? "Отмена" : "Cancel", null)
                 .show();
     }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        menu.add(0, 1, 0, "Очистить всё");
+        menu.add(0, 1, 0, isRu ? "Очистить всё" : "Clear all");
         return true;
     }
 
@@ -225,9 +228,10 @@ public class ChatHistoryActivity extends Activity {
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == 1) {
             new AlertDialog.Builder(this)
-                    .setTitle("Очистить всё?")
-                    .setMessage("Это удалит все сохранённые чаты.")
-                    .setPositiveButton("Удалить", new DialogInterface.OnClickListener() {
+                    .setTitle(isRu ? "Очистить всё?" : "Clear all?")
+                    .setMessage(isRu ? "Это удалит все сохранённые чаты."
+                                     : "This will delete all saved chats.")
+                    .setPositiveButton(isRu ? "Удалить" : "Delete", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface dialog, int which) {
                             for (ChatDatabase.ChatInfo chat : chatList) {
@@ -236,7 +240,7 @@ public class ChatHistoryActivity extends Activity {
                             loadChats();
                         }
                     })
-                    .setNegativeButton("Отмена", null)
+                    .setNegativeButton(isRu ? "Отмена" : "Cancel", null)
                     .show();
             return true;
         }

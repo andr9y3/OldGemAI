@@ -105,6 +105,15 @@ public class ChatDatabase extends SQLiteOpenHelper {
         db.update(TABLE_CHATS, chatUpdate, COL_CHAT_ID + "=?", new String[]{String.valueOf(chatId)});
     }
 
+    /** Удаляет последнее (по id) сообщение чата. Нужно для перегенерации ответа. */
+    public synchronized void deleteLastMessage(long chatId) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.delete(TABLE_MESSAGES,
+                COL_MSG_ID + "=(SELECT MAX(" + COL_MSG_ID + ") FROM " + TABLE_MESSAGES
+                        + " WHERE " + COL_MSG_CHAT_ID + "=?)",
+                new String[]{String.valueOf(chatId)});
+    }
+
     public int getMessageCount(long chatId) {
         SQLiteDatabase db = getReadableDatabase();
         Cursor c = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_MESSAGES +

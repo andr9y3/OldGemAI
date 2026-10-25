@@ -74,6 +74,7 @@ public class GeminiApi {
             public void run() {
                 HttpURLConnection connection = null;
                 try {
+                    AppLog.d("API", "listModels: request");
                     URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof HttpsURLConnection) {
@@ -124,8 +125,10 @@ public class GeminiApi {
                             if (supportsGenerate) models.add(name);
                         }
                     }
+                    AppLog.d("API", "listModels: ok, models=" + models.size());
                     callback.onSuccess(models);
                 } catch (Throwable t) {
+                    AppLog.e("API", "listModels failed", t);
                     callback.onError(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
                 } finally {
                     if (connection != null) connection.disconnect();
@@ -135,6 +138,10 @@ public class GeminiApi {
     }
 
     static String formatHttpError(int code, String body) {
+        try {
+            String b = body == null ? "" : body;
+            AppLog.w("API", "HTTP error " + code + ": " + (b.length() > 600 ? b.substring(0, 600) + "..." : b));
+        } catch (Throwable ignored) {}
         try {
             JSONObject e = new JSONObject(body).getJSONObject("error");
             return "[" + code + "|" + e.optString("status", "") + "] " + e.getString("message");
@@ -174,6 +181,7 @@ public class GeminiApi {
                     genConfig.put("responseModalities", responseModalities);
                     body.put("generationConfig", genConfig);
 
+                    AppLog.d("API", "generateImage: model=" + model + ", promptChars=" + (prompt != null ? prompt.length() : 0));
                     URL url = new URL(BASE_URL + model + ":generateContent");
                     connection = (HttpURLConnection) url.openConnection();
                     if (connection instanceof HttpsURLConnection) {
@@ -230,8 +238,10 @@ public class GeminiApi {
                             return;
                         }
                     }
+                    AppLog.w("API", "generateImage: no image in response");
                     callback.onError("No image in response");
                 } catch (Throwable t) {
+                    AppLog.e("API", "generateImage failed", t);
                     callback.onError(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
                 } finally {
                     if (connection != null) connection.disconnect();
@@ -326,6 +336,9 @@ public class GeminiApi {
                     body.put("generationConfig", genConfig);
 
                     final boolean doStream = stream && callback instanceof StreamCallback;
+                    AppLog.d("API", "sendMessage: model=" + model + ", stream=" + doStream + ", search=" + search
+                        + ", temp=" + temperature + ", history=" + history.size()
+                        + ", systemPrompt=" + (systemPrompt != null && systemPrompt.length() > 0));
                     URL url = new URL(BASE_URL + model
                         + (doStream ? ":streamGenerateContent?alt=sse" : ":generateContent")
                         );
@@ -361,6 +374,7 @@ public class GeminiApi {
                         return;
                     }
 
+                    AppLog.d("API", "sendMessage: HTTP " + responseCode);
                     if (doStream && responseCode >= 200 && responseCode < 300) {
                         BufferedReader sbr = new BufferedReader(new InputStreamReader(is, "UTF-8"));
                         StringBuilder acc = new StringBuilder();
@@ -440,6 +454,7 @@ public class GeminiApi {
 
                     callback.onSuccess(text);
                 } catch (Throwable t) {
+                    AppLog.e("API", "sendMessage failed", t);
                     String errLog = t.getMessage();
                     if (errLog == null) errLog = t.getClass().getSimpleName();
                     callback.onError(errLog);

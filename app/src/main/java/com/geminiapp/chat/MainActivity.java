@@ -48,9 +48,8 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private EditText etMessage;
     private Button btnSend;
     private Button btnAttach;
-    private Button btnTools;
     private LinearLayout topBar;
-    private Button btnMenu;
+    private android.widget.ImageButton btnMenu;
 
     private TextView tvNoKeyBanner;
     private ImageView ivPreview;
@@ -61,11 +60,40 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private long currentChatId = -1;
     private boolean pendingResponse = false;
 
+    // Режим изменения сообщения: индекс изменяемого сообщения (-1 - обычный режим)
+    private int editingIndex = -1;
+    private String editDraftText = "";
+    private String editDraftImage = null;
+    private String editDraftImageMime = "image/jpeg";
+    private LinearLayout editBar;
+    private TextView tvEditing;
+
+    // Контекст (экспериментальные функции): краткое содержание заменяет первые ctxSummaryCount сообщений чата
+    private String ctxSummary = "";
+    private int ctxSummaryCount = 0;
+    private LinearLayout compressBar;
+    private TextView tvCompress;
+
+    // Плавное появление текста: показанная часть постепенно догоняет полученную
+    private static final int REVEAL_TICK_MS = 50;
+    private String revealTarget = "";
+    private int revealShown = 0;
+    private boolean revealRunning = false;
+    private boolean revealFinishing = false;
+    private String revealFinalText = null;
+    private final Runnable revealTick = new Runnable() {
+        @Override
+        public void run() {
+            onRevealTick();
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         prefs = new Prefs(this);
+        AppLog.d("UI", "MainActivity onCreate (restored=" + (savedInstanceState != null) + ")");
         geminiApi = new GeminiApi();
         mainHandler = new Handler(Looper.getMainLooper());
         chatDb = new ChatDatabase(this);
@@ -81,8 +109,8 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
         topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnMenu = new Button(this);
-        btnMenu.setText("\u2630");
+        btnMenu = new android.widget.ImageButton(this);
+        btnMenu.setImageDrawable(new MenuIcon(dp(24), 0xFF000000));
         topBar.addView(btnMenu, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         mainLayout.addView(topBar);
@@ -123,6 +151,53 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
         mainLayout.addView(attachPreviewLayout);
 
+        editBar = new LinearLayout(this);
+        editBar.setOrientation(LinearLayout.HORIZONTAL);
+        editBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        editBar.setPadding(dp(10), dp(2), dp(4), dp(2));
+        editBar.setBackgroundColor(0xFFE3EBF6);
+        editBar.setVisibility(View.GONE);
+
+        tvEditing = new TextView(this);
+        tvEditing.setTextColor(0xFF000000);
+        tvEditing.setTextSize(13);
+        editBar.addView(tvEditing, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        Button btnCancelEdit = new Button(this);
+        btnCancelEdit.setText("✕");
+        editBar.addView(btnCancelEdit, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        btnCancelEdit.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exitEditMode(true);
+            }
+        });
+        mainLayout.addView(editBar);
+
+        // Полоска с прогрессбаром: показывается, пока диалог сжимается
+        compressBar = new LinearLayout(this);
+        compressBar.setOrientation(LinearLayout.VERTICAL);
+        compressBar.setPadding(dp(10), dp(6), dp(10), dp(6));
+        compressBar.setBackgroundColor(0xFFFFF4D6);
+        compressBar.setVisibility(View.GONE);
+
+        tvCompress = new TextView(this);
+        tvCompress.setTextColor(0xFF000000);
+        tvCompress.setTextSize(13);
+        compressBar.addView(tvCompress, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        android.widget.ProgressBar compressProgress = new android.widget.ProgressBar(
+                this, null, android.R.attr.progressBarStyleHorizontal);
+        compressProgress.setIndeterminate(true);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        progressParams.setMargins(0, dp(4), 0, 0);
+        compressBar.addView(compressProgress, progressParams);
+        mainLayout.addView(compressBar);
+
         LinearLayout inputLayout = new LinearLayout(this);
         inputLayout.setOrientation(LinearLayout.HORIZONTAL);
         inputLayout.setPadding(10, 10, 10, 10);
@@ -130,11 +205,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
         btnAttach = new Button(this);
         btnAttach.setText("+");
         inputLayout.addView(btnAttach, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        btnTools = new Button(this);
-        btnTools.setText("Инструменты");
-        inputLayout.addView(btnTools, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         etMessage = new EditText(this);
@@ -151,6 +221,23 @@ public class MainActivity extends Activity implements PendingState.Listener {
         setContentView(mainLayout);
 
         adapter = new ChatAdapter(this, messages);
+        adapter.setRegenerateListener(new ChatAdapter.RegenerateListener() {
+            @Override
+            public boolean canRegenerate() {
+                return !pendingResponse;
+            }
+
+            @Override
+            public void onRegenerate() {
+                regenerateLast();
+            }
+        });
+        adapter.setEditListener(new ChatAdapter.EditListener() {
+            @Override
+            public void onEdit(int position) {
+                startEdit(position);
+            }
+        });
         lvChat.setAdapter(adapter);
         showLegacyTlsHint();
 
@@ -168,15 +255,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
         });
 
         btnAttach.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent intent = new Intent(Intent.ACTION_PICK);
-                intent.setType("image/*");
-                startActivityForResult(intent, REQUEST_PICK_IMAGE);
-            }
-        });
-
-        btnTools.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (pendingResponse) {
@@ -271,6 +349,8 @@ public class MainActivity extends Activity implements PendingState.Listener {
             btnAttach.setEnabled(false);
             loadMessagesFromDb();
             String soFar = PendingState.partialText != null ? PendingState.partialText : "";
+            revealTarget = soFar;
+            revealShown = soFar.length();
             if (soFar.length() == 0) soFar = "...";
             messages.add(new GeminiApi.Message("model", soFar));
             adapter.notifyDataSetChanged();
@@ -285,6 +365,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         messages.clear();
         if (currentChatId != -1 && chatDb.chatExists(currentChatId)) {
             messages.addAll(chatDb.getChatMessages(currentChatId));
+            loadSummaryState();
         }
         adapter.notifyDataSetChanged();
         if (messages.size() > 0) {
@@ -305,6 +386,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        mainHandler.removeCallbacks(revealTick);
         if (PendingState.listener == this) {
             PendingState.listener = null;
         }
@@ -320,6 +402,11 @@ public class MainActivity extends Activity implements PendingState.Listener {
     @Override
     public void onPendingPartial(String textSoFar) {
         if (!pendingResponse || messages.size() == 0) return;
+        if (useSmoothText()) {
+            revealTarget = textSoFar;
+            startReveal();
+            return;
+        }
         messages.set(messages.size() - 1, new GeminiApi.Message("model", textSoFar));
         adapter.notifyDataSetChanged();
         lvChat.setSelection(messages.size() - 1);
@@ -327,6 +414,20 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     @Override
     public void onPendingSuccess(String text) {
+        // Если текст ещё допечатывается, дожидаемся конца плавного вывода и только потом завершаем
+        if (useSmoothText() && pendingResponse && messages.size() > 0 && revealShown < text.length()) {
+            revealTarget = text;
+            revealFinalText = text;
+            revealFinishing = true;
+            startReveal();
+            return;
+        }
+        finishSuccess(text);
+    }
+
+    private void finishSuccess(String text) {
+        AppLog.d("UI", "Response received, chars=" + (text != null ? text.length() : 0));
+        stopReveal();
         if (messages.size() > 0) {
             messages.set(messages.size() - 1, new GeminiApi.Message("model", text));
             adapter.notifyDataSetChanged();
@@ -341,6 +442,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     @Override
     public void onPendingImage(String base64png) {
+        stopReveal();
         if (messages.size() > 0) {
             messages.set(messages.size() - 1, new GeminiApi.Message("model", "", base64png, true));
         }
@@ -355,6 +457,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     @Override
     public void onPendingError(String error) {
+        stopReveal();
         pendingResponse = false;
         if (messages.size() > 0) {
             messages.remove(messages.size() - 1);
@@ -450,12 +553,14 @@ public class MainActivity extends Activity implements PendingState.Listener {
     }
 
     private void loadChatFromHistory(long chatId) {
+        exitEditMode(false);
         List<GeminiApi.Message> loaded = chatDb.getChatMessages(chatId);
         messages.clear();
         messages.addAll(loaded);
         adapter.notifyDataSetChanged();
         lvChat.setSelection(Math.max(0, messages.size() - 1));
         currentChatId = chatId;
+        loadSummaryState();
         pendingResponse = false;
         PendingState.chatId = chatId;
         PendingState.clearResponse();
@@ -638,6 +743,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         final String imageBase64 = pendingImageBase64;
         final String imageMime = pendingImageMime;
 
+        applyPendingEdit();
         GeminiApi.Message userMsg = hasImage
             ? new GeminiApi.Message("user", text, imageBase64, imageMime)
             : new GeminiApi.Message("user", text);
@@ -651,6 +757,11 @@ public class MainActivity extends Activity implements PendingState.Listener {
         PendingState.clearImage();
         attachPreviewLayout.setVisibility(View.GONE);
 
+        startModelRequest(apiKey, isRu);
+    }
+
+    // Запускает запрос к модели по текущей истории (последнее сообщение - от пользователя)
+    private void startModelRequest(String apiKey, boolean isRu) {
         messages.add(new GeminiApi.Message("model", "..."));
         pendingResponse = true;
         adapter.notifyDataSetChanged();
@@ -658,23 +769,27 @@ public class MainActivity extends Activity implements PendingState.Listener {
         btnSend.setEnabled(false);
         btnAttach.setEnabled(false);
 
-        final List<GeminiApi.Message> historyCopy = new ArrayList<GeminiApi.Message>();
-        for (int i = 0; i < messages.size() - 1; i++) {
-            historyCopy.add(messages.get(i));
-        }
-
         PendingState.pending = true;
         PendingState.partialText = "";
         PendingState.finalResponse = null;
         PendingState.finalImageBase64 = null;
         PendingState.error = null;
         PendingState.pendingModel = null;
+        stopReveal();
 
+        // Контекст (обрезка / сжатие) собирается в buildContextAndSend, запрос уходит в dispatchRequest
+        buildContextAndSend(apiKey, isRu);
+    }
+
+    private void dispatchRequest(String apiKey, boolean isRu, String systemPrompt,
+                                 List<GeminiApi.Message> historyCopy) {
+        AppLog.d("UI", "Sending text message, history=" + historyCopy.size()
+            + " of " + (messages.size() - 1) + ", summary=" + (ctxSummaryCount > 0 && prefs.isCompressContext()));
         geminiApi.sendMessage(
             apiKey,
             prefs.getModel(),
             prefs.getTemperature(),
-            prefs.getSystemPrompt(),
+            systemPrompt,
             historyCopy,
             prefs.isStream(),
             prefs.isSearch(),
@@ -683,7 +798,353 @@ public class MainActivity extends Activity implements PendingState.Listener {
         );
     }
 
+    // ---- Контекст: обрезка и сжатие диалога (экспериментальные функции) ----
+
+    // Собирает то, что уйдёт модели: вся история, последние сообщения или пересказ старой части + последние
+    // сообщения. В чате сообщения не удаляются, меняется только запрос к модели.
+    private void buildContextAndSend(final String apiKey, final boolean isRu) {
+        final int h = messages.size() - 1;   // история без заглушки "..."; последнее в ней - сообщение пользователя
+        final String baseSystem = prefs.getSystemPrompt();
+        if (ctxSummaryCount > h) clearSummaryState();
+
+        if (!prefs.isTrimContext()) {
+            dispatchRequest(apiKey, isRu, baseSystem, copyRange(0, h));
+            return;
+        }
+
+        int limit = prefs.getTrimLimit();
+
+        if (prefs.isCompressContext()) {
+            // Сжатие: когда несжатых сообщений стало больше лимита, всё, кроме последних limit/2,
+            // пересказывается и заменяется кратким содержанием
+            if (h - ctxSummaryCount > limit) {
+                int keep = Math.max(2, limit / 2);
+                int cut = firstUserIndexFrom(Math.max(ctxSummaryCount, h - keep), h);
+                if (cut > ctxSummaryCount) {
+                    startCompression(apiKey, isRu, cut, h);
+                    return;
+                }
+            }
+            dispatchRequest(apiKey, isRu, withSummary(baseSystem, isRu), copyRange(ctxSummaryCount, h));
+            return;
+        }
+
+        // Только обрезка: отправляем последние limit сообщений, начиная с сообщения пользователя
+        int start = firstUserIndexFrom(Math.max(0, h - limit), h);
+        dispatchRequest(apiKey, isRu, baseSystem, copyRange(start, h));
+    }
+
+    // Запрос к Gemini с просьбой кратко пересказать сообщения [ctxSummaryCount, cut). Предыдущее содержание
+    // (если было) передаётся вместе с новыми сообщениями, поэтому содержание накапливается.
+    private void startCompression(final String apiKey, final boolean isRu, final int cut, final int h) {
+        AppLog.d("UI", "Compressing context: messages " + ctxSummaryCount + ".." + cut + " of " + h);
+        showCompressing(true);
+
+        StringBuilder sb = new StringBuilder();
+        if (ctxSummary.length() > 0) {
+            sb.append(isRu ? "Предыдущее краткое содержание:\n" : "Previous summary:\n");
+            sb.append(ctxSummary).append("\n\n");
+        }
+        sb.append(isRu ? "Новые сообщения диалога:\n" : "New dialog messages:\n");
+        for (int i = ctxSummaryCount; i < cut && i < messages.size(); i++) {
+            GeminiApi.Message m = messages.get(i);
+            boolean fromUser = "user".equals(m.role);
+            sb.append(fromUser ? (isRu ? "Пользователь: " : "User: ") : (isRu ? "Ассистент: " : "Assistant: "));
+            sb.append(describeForSummary(m, isRu)).append("\n\n");
+        }
+
+        List<GeminiApi.Message> request = new ArrayList<GeminiApi.Message>();
+        request.add(new GeminiApi.Message("user", sb.toString()));
+
+        // Обычный (не потоковый) запрос, промпт сжатия - в системной инструкции, без поиска
+        geminiApi.sendMessage(apiKey, prefs.getModel(), 0.3f, prefs.getCompressPrompt(), request,
+            false, false, "", new GeminiApi.Callback() {
+                @Override
+                public void onSuccess(final String text) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            onCompressionDone(apiKey, isRu, cut, h, text);
+                        }
+                    });
+                }
+
+                @Override
+                public void onError(final String error) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            onCompressionFailed(apiKey, isRu, h, error);
+                        }
+                    });
+                }
+            });
+    }
+
+    private void onCompressionDone(String apiKey, boolean isRu, int cut, int h, String summary) {
+        showCompressing(false);
+        if (prefs.isLogCompress()) {
+            AppLog.i("Compress", "Model reply (" + (summary != null ? summary.length() : 0) + " chars):\n"
+                + (summary != null ? summary : "(null)"));
+        }
+        String s = summary != null ? summary.trim() : "";
+        if (s.length() == 0) {
+            onCompressionFailed(apiKey, isRu, h, "empty summary");
+            return;
+        }
+        ctxSummary = s;
+        ctxSummaryCount = cut;
+        saveNewMessages();   // чтобы у чата был id, к которому можно привязать пересказ
+        if (currentChatId != -1) prefs.setChatSummary(currentChatId, s, cut);
+        AppLog.d("UI", "Context compressed: " + cut + " messages -> summary of " + s.length() + " chars");
+        dispatchRequest(apiKey, isRu, withSummary(prefs.getSystemPrompt(), isRu), copyRange(cut, h));
+    }
+
+    // Ошибка сжатия не блокирует ответ: отправляем несжатые сообщения (следующая отправка попробует снова)
+    private void onCompressionFailed(String apiKey, boolean isRu, int h, String error) {
+        showCompressing(false);
+        AppLog.w("UI", "Context compression failed: " + error);
+        Toast.makeText(this, isRu
+            ? "Не удалось сжать диалог, сообщения отправлены как есть"
+            : "Could not compress the dialog, sending messages as is", Toast.LENGTH_LONG).show();
+        dispatchRequest(apiKey, isRu, withSummary(prefs.getSystemPrompt(), isRu), copyRange(ctxSummaryCount, h));
+    }
+
+    private void showCompressing(boolean on) {
+        if (on) {
+            boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+            tvCompress.setText(isRu ? "Сжатие диалога..." : "Compressing dialog...");
+        }
+        compressBar.setVisibility(on ? View.VISIBLE : View.GONE);
+    }
+
+    // Пересказ добавляется к системному промпту: так не нарушается чередование ролей user/model
+    private String withSummary(String baseSystem, boolean isRu) {
+        if (ctxSummaryCount == 0 || ctxSummary.length() == 0) return baseSystem;
+        String head = isRu
+            ? "Краткое содержание предыдущей части диалога (сами сообщения пропущены для экономии контекста):\n"
+            : "Summary of the earlier part of the conversation (the messages themselves were omitted to save context):\n";
+        return (baseSystem != null && baseSystem.length() > 0 ? baseSystem + "\n\n" : "") + head + ctxSummary;
+    }
+
+    // Текст сообщения для пересказа: картинки заменяются меткой, очень длинные тексты обрезаются
+    private String describeForSummary(GeminiApi.Message m, boolean isRu) {
+        String t = m.text != null ? m.text.trim() : "";
+        if (t.length() > 3000) t = t.substring(0, 3000) + "...";
+        if (m.imageBase64 != null && m.imageBase64.length() > 0) {
+            String tag = m.isGeneratedImage
+                ? (isRu ? "[сгенерированная картинка]" : "[generated image]")
+                : (isRu ? "[изображение]" : "[image]");
+            t = t.length() > 0 ? t + " " + tag : tag;
+        }
+        return t;
+    }
+
+    private List<GeminiApi.Message> copyRange(int from, int to) {
+        List<GeminiApi.Message> out = new ArrayList<GeminiApi.Message>();
+        int end = Math.min(to, messages.size());
+        for (int i = Math.max(0, from); i < end; i++) {
+            out.add(messages.get(i));
+        }
+        return out;
+    }
+
+    // Первое сообщение пользователя в [from, end): история, отправляемая модели, должна начинаться с user
+    private int firstUserIndexFrom(int from, int end) {
+        for (int i = Math.max(0, from); i < end && i < messages.size(); i++) {
+            if ("user".equals(messages.get(i).role)) return i;
+        }
+        return Math.max(0, from);
+    }
+
+    // Загружает сохранённый пересказ текущего чата (вызывать после загрузки сообщений)
+    private void loadSummaryState() {
+        resetSummaryState();
+        if (currentChatId == -1) return;
+        String s = prefs.getChatSummary(currentChatId);
+        int c = prefs.getChatSummaryCount(currentChatId);
+        if (s.length() > 0 && c > 0 && c <= messages.size()) {
+            ctxSummary = s;
+            ctxSummaryCount = c;
+        }
+    }
+
+    // Сбрасывает только состояние в памяти (при переключении на другой чат)
+    private void resetSummaryState() {
+        ctxSummary = "";
+        ctxSummaryCount = 0;
+    }
+
+    // Пересказ стал неактуальным (сообщения, которые он заменяет, изменены или удалены): удаляем и из памяти, и из настроек
+    private void clearSummaryState() {
+        if (currentChatId != -1) prefs.clearChatSummary(currentChatId);
+        resetSummaryState();
+    }
+
+    // Перегенерация последнего ответа модели (кнопка под ответом)
+    private void regenerateLast() {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (pendingResponse) {
+            Toast.makeText(this, isRu ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String apiKey = prefs.getApiKey();
+        if (TextUtils.isEmpty(apiKey)) {
+            Toast.makeText(this, isRu ? "Сначала добавьте API ключ в настройках" : "Please add an API key in Settings", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (editingIndex >= 0) exitEditMode(true);
+        int n = messages.size();
+        if (n < 2) return;
+        GeminiApi.Message last = messages.get(n - 1);
+        GeminiApi.Message prev = messages.get(n - 2);
+        if (!"model".equals(last.role) || !"user".equals(prev.role)) return;
+
+        String prevText = prev.text != null ? prev.text : "";
+        if (prevText.toLowerCase().startsWith("/image ")) {
+            // Перегенерация картинки
+            String prompt = prevText.substring(7).trim();
+            if (prompt.length() == 0) return;
+            String imageModel = prefs.getImageModel();
+            if (prefs.isImageRemember() && imageModel.length() > 0) {
+                AppLog.d("UI", "Regenerate image, model=" + imageModel);
+                messages.remove(n - 1);
+                messages.remove(n - 2);
+                trimDbTo(n - 2);
+                adapter.notifyDataSetChanged();
+                startImageGeneration(prompt, imageModel, isRu, apiKey);
+            } else {
+                // Модель не запомнена: показываем обычный выбор модели,
+                // старая картинка остаётся в чате (чтобы не потерять её при отмене)
+                AppLog.d("UI", "Regenerate image: model not remembered, asking");
+                String savedInput = etMessage.getText().toString();
+                etMessage.setText("/image " + prompt);
+                sendMessage();
+                etMessage.setText(savedInput);
+            }
+            return;
+        }
+
+        // Перегенерация текстового ответа: убираем последний ответ и заново спрашиваем модель
+        AppLog.d("UI", "Regenerate text response");
+        messages.remove(n - 1);
+        trimDbTo(n - 1);
+        adapter.notifyDataSetChanged();
+        startModelRequest(apiKey, isRu);
+        lvChat.setSelection(messages.size() - 1);
+    }
+
+    // ---- Изменение сообщения пользователя ----
+
+    // Помещает текст (и картинку, если была) сообщения в поле ввода. При отправке
+    // это сообщение и всё после него заменяется новой версией и модель отвечает заново.
+    private void startEdit(int position) {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (pendingResponse) {
+            Toast.makeText(this, isRu ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (position < 0 || position >= messages.size()) return;
+        GeminiApi.Message m = messages.get(position);
+        if (!"user".equals(m.role)) return;
+
+        // Черновик сохраняем только при входе в режим (при переключении между сообщениями не затираем)
+        if (editingIndex < 0) {
+            editDraftText = etMessage.getText().toString();
+            editDraftImage = pendingImageBase64;
+            editDraftImageMime = pendingImageMime;
+        }
+        editingIndex = position;
+        AppLog.d("UI", "Edit message #" + position + " of " + messages.size());
+
+        etMessage.setText(m.text != null ? m.text : "");
+        etMessage.setSelection(etMessage.getText().length());
+
+        if (m.imageBase64 != null && m.imageBase64.length() > 0 && !m.isGeneratedImage) {
+            setPendingImage(m.imageBase64, m.imageMimeType);
+        } else {
+            setPendingImage(null, null);
+        }
+
+        tvEditing.setText(isRu
+            ? "Изменение сообщения. Все сообщения после него будут удалены."
+            : "Editing message. All messages after it will be removed.");
+        editBar.setVisibility(View.VISIBLE);
+
+        etMessage.requestFocus();
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(etMessage, 0);
+        } catch (Throwable ignored) {}
+    }
+
+    // Выход из режима изменения; restoreDraft - вернуть в поле то, что было до изменения
+    private void exitEditMode(boolean restoreDraft) {
+        if (editingIndex < 0) return;
+        editingIndex = -1;
+        editBar.setVisibility(View.GONE);
+        if (restoreDraft) {
+            etMessage.setText(editDraftText != null ? editDraftText : "");
+            setPendingImage(editDraftImage, editDraftImageMime);
+        }
+        editDraftText = "";
+        editDraftImage = null;
+        editDraftImageMime = "image/jpeg";
+    }
+
+    // Вызывается при отправке: удаляет изменяемое сообщение и всё после него (из списка и из БД)
+    private void applyPendingEdit() {
+        if (editingIndex < 0) return;
+        int idx = editingIndex;
+        exitEditMode(false);
+        if (idx < messages.size()) {
+            AppLog.d("UI", "Edit applied: removing messages from #" + idx + " (total " + messages.size() + ")");
+            while (messages.size() > idx) {
+                messages.remove(messages.size() - 1);
+            }
+            trimDbTo(idx);
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    // Устанавливает (или убирает, если b64 == null) прикреплённое изображение и превью
+    private void setPendingImage(String b64, String mime) {
+        if (b64 != null && b64.length() > 0) {
+            try {
+                byte[] bytes = Base64Compat.decode(b64);
+                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bmp != null) {
+                    pendingImageBase64 = b64;
+                    pendingImageMime = mime != null ? mime : "image/jpeg";
+                    PendingState.pendingImageBase64 = pendingImageBase64;
+                    PendingState.pendingImageMime = pendingImageMime;
+                    ivPreview.setImageBitmap(bmp);
+                    attachPreviewLayout.setVisibility(View.VISIBLE);
+                    return;
+                }
+            } catch (Exception ignored) {}
+        }
+        pendingImageBase64 = null;
+        pendingImageMime = "image/jpeg";
+        PendingState.clearImage();
+        attachPreviewLayout.setVisibility(View.GONE);
+    }
+
+    // Удаляет из БД последние сообщения текущего чата, пока там не останется size штук
+    private void trimDbTo(int size) {
+        if (ctxSummaryCount > size) clearSummaryState();
+        if (currentChatId == -1 || !chatDb.chatExists(currentChatId)) return;
+        int count = chatDb.getMessageCount(currentChatId);
+        while (count > size) {
+            chatDb.deleteLastMessage(currentChatId);
+            count--;
+        }
+    }
+
     private void startImageGeneration(String prompt, String selectedModel, boolean isRu, String apiKey) {
+        applyPendingEdit();
         messages.add(new GeminiApi.Message("user", "/image " + prompt));
         messages.add(new GeminiApi.Message("model", isRu ? "Генерация картинки..." : "Generating image..."));
         adapter.notifyDataSetChanged();
@@ -699,6 +1160,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         PendingState.error = null;
         PendingState.pendingModel = selectedModel;
 
+        AppLog.d("UI", "Starting image generation, model=" + selectedModel);
         geminiApi.generateImage(apiKey, selectedModel, prompt, new ImageSendCallback());
     }
 
@@ -771,7 +1233,59 @@ public class MainActivity extends Activity implements PendingState.Listener {
         }
     }
 
+    // ---- Плавное появление текста ----
+
+    // Работает только при включённом постепенном выводе и включённой галке в настройках
+    private boolean useSmoothText() {
+        return prefs.isStream() && prefs.isSmoothText();
+    }
+
+    private void startReveal() {
+        if (!revealRunning) scheduleReveal();
+    }
+
+    private void scheduleReveal() {
+        revealRunning = true;
+        mainHandler.postDelayed(revealTick, REVEAL_TICK_MS);
+    }
+
+    private void stopReveal() {
+        mainHandler.removeCallbacks(revealTick);
+        revealRunning = false;
+        revealFinishing = false;
+        revealFinalText = null;
+        revealTarget = "";
+        revealShown = 0;
+    }
+
+    private void onRevealTick() {
+        revealRunning = false;
+        if (!pendingResponse || messages.size() == 0) return;
+
+        int len = revealTarget.length();
+        if (revealShown < len) {
+            // Чем больше накопилось непоказанного текста, тем быстрее печатаем, чтобы не отставать
+            int step = Math.max(2, (len - revealShown) / 5);
+            revealShown = Math.min(len, revealShown + step);
+            // Не разрываем суррогатную пару (эмодзи)
+            if (revealShown < len && Character.isHighSurrogate(revealTarget.charAt(revealShown - 1))) {
+                revealShown++;
+            }
+            messages.set(messages.size() - 1,
+                new GeminiApi.Message("model", revealTarget.substring(0, revealShown)));
+            adapter.notifyDataSetChanged();
+            lvChat.setSelection(messages.size() - 1);
+        }
+
+        if (revealShown < len) {
+            scheduleReveal();
+        } else if (revealFinishing) {
+            finishSuccess(revealFinalText);
+        }
+    }
+
     private void showErrorDialog(String rawError) {
+        AppLog.w("UI", "Error dialog shown: " + rawError);
         final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
 
         String title;
@@ -943,6 +1457,8 @@ public class MainActivity extends Activity implements PendingState.Listener {
             return;
         }
         saveNewMessages();
+        exitEditMode(false);
+        resetSummaryState();
         messages.clear();
         adapter.notifyDataSetChanged();
         currentChatId = -1;
@@ -965,8 +1481,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     }
 
     private void updateToolsLabel() {
-        boolean ru = Prefs.LANG_RU.equals(prefs.getLanguage());
-        btnTools.setText((ru ? "Инструменты" : "Tools") + (prefs.isSearch() ? " *" : ""));
+        btnAttach.setText(prefs.isSearch() ? "+*" : "+");
     }
 
     // Кнопка "Картинка" работает как /image с текстом из поля ввода
@@ -987,6 +1502,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(12), dp(8), dp(12), dp(8));
 
+        Button btnPhoto = new Button(this);
+        btnPhoto.setText(ru ? "Фото" : "Photo");
+        box.addView(btnPhoto);
+
         Button btnImage = new Button(this);
         btnImage.setText(ru ? "Картинка" : "Image");
         box.addView(btnImage);
@@ -1003,17 +1522,29 @@ public class MainActivity extends Activity implements PendingState.Listener {
         cbSearch.setChecked(prefs.isSearch());
         box.addView(cbSearch);
 
-        final AlertDialog dlg = new AlertDialog.Builder(this)
-            .setTitle(ru ? "Инструменты" : "Tools")
-            .setView(box)
-            .setPositiveButton("OK", null)
-            .create();
+        // Нижняя панель: обычный Dialog, прижатый к низу экрана
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dlg.setContentView(box);
+        android.view.Window win = dlg.getWindow();
+        win.setGravity(android.view.Gravity.BOTTOM);
+        win.setLayout(android.view.ViewGroup.LayoutParams.FILL_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
 
         cbSearch.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(android.widget.CompoundButton b, boolean checked) {
                 prefs.setSearch(checked);
                 updateToolsLabel();
+            }
+        });
+        btnPhoto.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                dlg.dismiss();
+                Intent intent = new Intent(Intent.ACTION_PICK);
+                intent.setType("image/*");
+                startActivityForResult(intent, REQUEST_PICK_IMAGE);
             }
         });
         btnImage.setOnClickListener(new View.OnClickListener() {
@@ -1024,6 +1555,43 @@ public class MainActivity extends Activity implements PendingState.Listener {
             }
         });
         dlg.show();
+    }
+
+    // Иконка "три полоски" рисуется кодом: символ \u2630 есть не во всех шрифтах старых Android
+    private static class MenuIcon extends android.graphics.drawable.Drawable {
+        private final android.graphics.Paint paint = new android.graphics.Paint();
+        private final int size;
+
+        MenuIcon(int size, int color) {
+            this.size = size;
+            paint.setColor(color);
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            float barH = b.height() / 12f;
+            for (int i = 0; i < 3; i++) {
+                float center = b.top + b.height() * (0.25f + 0.25f * i);
+                float top = center - barH / 2f;
+                canvas.drawRect(b.left, top, b.right, top + barH, paint);
+            }
+        }
+
+        @Override
+        public int getIntrinsicWidth() { return size; }
+
+        @Override
+        public int getIntrinsicHeight() { return size; }
+
+        @Override
+        public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
+
+        @Override
+        public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
     }
 
     private int dp(int val) {

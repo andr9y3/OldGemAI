@@ -133,9 +133,155 @@ public class SettingsActivity extends Activity {
         cbStream.setChecked(prefs.isStream());
         layout.addView(cbStream);
 
+        final android.widget.CheckBox cbSmooth = new android.widget.CheckBox(this);
+        cbSmooth.setText(isRu ? "Плавное появление текста (при постепенном выводе)"
+                              : "Smooth text appearance (with streaming)");
+        cbSmooth.setChecked(prefs.isSmoothText());
+        cbSmooth.setEnabled(cbStream.isChecked());
+        layout.addView(cbSmooth);
+        cbStream.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean checked) {
+                cbSmooth.setEnabled(checked);
+            }
+        });
+
+        final android.widget.CheckBox cbThinking = new android.widget.CheckBox(this);
+        cbThinking.setText(isRu ? "Анимация ожидания ответа (три точки)"
+                                : "Waiting animation (three dots)");
+        cbThinking.setChecked(prefs.isThinkingAnim());
+        layout.addView(cbThinking);
+
+        // ---- Экспериментальные функции ----
+        TextView labelExperimental = new TextView(this);
+        labelExperimental.setText(isRu ? "Экспериментальные функции" : "Experimental features");
+        labelExperimental.setTextSize(16);
+        labelExperimental.setTypeface(null, android.graphics.Typeface.BOLD);
+        labelExperimental.setPadding(0, 24, 0, 4);
+        layout.addView(labelExperimental);
+
+        final android.widget.CheckBox cbTrim = new android.widget.CheckBox(this);
+        cbTrim.setText(isRu ? "Обрезать контекст" : "Trim context");
+        cbTrim.setChecked(prefs.isTrimContext());
+        layout.addView(cbTrim);
+
+        TextView tvTrimHint = new TextView(this);
+        tvTrimHint.setText(isRu
+            ? "Когда в диалоге становится больше сообщений, чем задано ниже, модели отправляются только последние сообщения. В самом чате ничего не удаляется."
+            : "When the dialog has more messages than the limit below, only the latest messages are sent to the model. Nothing is deleted from the chat itself.");
+        tvTrimHint.setTextColor(0xFF888888);
+        tvTrimHint.setTextSize(12);
+        tvTrimHint.setPadding(0, 0, 0, 4);
+        layout.addView(tvTrimHint);
+
+        TextView labelTrimLimit = new TextView(this);
+        labelTrimLimit.setText(isRu ? "Лимит сообщений в контексте (" + Prefs.MIN_TRIM_LIMIT + "-" + Prefs.MAX_TRIM_LIMIT + ")"
+                                  : "Messages in context limit (" + Prefs.MIN_TRIM_LIMIT + "-" + Prefs.MAX_TRIM_LIMIT + ")");
+        layout.addView(labelTrimLimit);
+
+        final EditText etTrimLimit = new EditText(this);
+        etTrimLimit.setSingleLine(true);
+        etTrimLimit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        etTrimLimit.setText(String.valueOf(prefs.getTrimLimit()));
+        layout.addView(etTrimLimit);
+
+        final android.widget.CheckBox cbCompress = new android.widget.CheckBox(this);
+        cbCompress.setText(isRu ? "Сжимать диалог" : "Compress dialog");
+        cbCompress.setChecked(prefs.isCompressContext());
+        layout.addView(cbCompress);
+
+        TextView tvCompressHint = new TextView(this);
+        tvCompressHint.setText(isRu
+            ? "Вместо отброшенных сообщений модели отправляется их краткий пересказ. Для этого перед ответом делается дополнительный запрос к Gemini. Пока идёт сжатие, показывается индикатор."
+            : "Instead of the dropped messages, a short summary of them is sent to the model. This makes an extra request to Gemini before the answer; a progress indicator is shown while compressing.");
+        tvCompressHint.setTextColor(0xFF888888);
+        tvCompressHint.setTextSize(12);
+        tvCompressHint.setPadding(0, 0, 0, 4);
+        layout.addView(tvCompressHint);
+
+        TextView labelCompressPrompt = new TextView(this);
+        labelCompressPrompt.setText(isRu ? "Промпт для сжатия" : "Compression prompt");
+        layout.addView(labelCompressPrompt);
+
+        final EditText etCompressPrompt = new EditText(this);
+        etCompressPrompt.setMinLines(5);
+        etCompressPrompt.setGravity(android.view.Gravity.TOP);
+        etCompressPrompt.setText(prefs.getCompressPrompt());
+        layout.addView(etCompressPrompt);
+
+        final Button btnResetCompress = new Button(this);
+        btnResetCompress.setText(isRu ? "Сбросить промпт" : "Reset prompt");
+        layout.addView(btnResetCompress);
+        btnResetCompress.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String lang = spinnerLanguage.getSelectedItemPosition() == 0 ? Prefs.LANG_RU : Prefs.LANG_EN;
+                etCompressPrompt.setText(Prefs.getDefaultCompressPrompt(lang));
+            }
+        });
+
+        final android.widget.CheckBox cbLogCompress = new android.widget.CheckBox(this);
+        cbLogCompress.setText(isRu ? "Записывать ответ модели при сжатии в логи"
+                                  : "Log the model reply when compressing");
+        cbLogCompress.setChecked(prefs.isLogCompress());
+        layout.addView(cbLogCompress);
+
+        // Дочерние настройки активны только при включённом родителе: обрезка -> сжатие -> промпт
+        final Runnable updateExperimental = new Runnable() {
+            @Override
+            public void run() {
+                boolean trim = cbTrim.isChecked();
+                boolean compress = trim && cbCompress.isChecked();
+                etTrimLimit.setEnabled(trim);
+                cbCompress.setEnabled(trim);
+                etCompressPrompt.setEnabled(compress);
+                btnResetCompress.setEnabled(compress);
+                cbLogCompress.setEnabled(compress);
+            }
+        };
+        android.widget.CompoundButton.OnCheckedChangeListener expListener =
+            new android.widget.CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(android.widget.CompoundButton b, boolean checked) {
+                    updateExperimental.run();
+                }
+            };
+        cbTrim.setOnCheckedChangeListener(expListener);
+        cbCompress.setOnCheckedChangeListener(expListener);
+        updateExperimental.run();
+
         Button btnSave = new Button(this);
         btnSave.setText(isRu ? "Сохранить" : "Save");
         layout.addView(btnSave);
+
+        Button btnCopyLogs = new Button(this);
+        btnCopyLogs.setText(isRu ? "Скопировать логи" : "Copy logs");
+        layout.addView(btnCopyLogs);
+
+        TextView tvLogsHint = new TextView(this);
+        tvLogsHint.setText(isRu
+            ? "В логи входят информация об устройстве, настройки, журнал работы и краши. API ключ и тексты сообщений не копируются, кроме ответа модели при сжатии диалога, если эта опция включена."
+            : "Logs include device info, settings, the app log and crashes. The API key and message texts are not copied, except the model reply when compressing the dialog, if that option is on.");
+        tvLogsHint.setTextColor(0xFF888888);
+        tvLogsHint.setTextSize(12);
+        tvLogsHint.setPadding(0, 4, 0, 4);
+        layout.addView(tvLogsHint);
+
+        btnCopyLogs.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String report = AppLog.buildReport(SettingsActivity.this);
+                boolean ok = AppLog.copyToClipboard(SettingsActivity.this, report);
+                int kb = Math.max(1, report.length() / 1024);
+                String msg;
+                if (ok) {
+                    msg = isRu ? "Логи скопированы (" + kb + " КБ)" : "Logs copied (" + kb + " KB)";
+                } else {
+                    msg = isRu ? "Не удалось скопировать логи" : "Failed to copy logs";
+                }
+                Toast.makeText(SettingsActivity.this, msg, Toast.LENGTH_LONG).show();
+            }
+        });
 
         TextView tvGithub = new TextView(this);
         tvGithub.setPadding(0, 20, 0, 10);
@@ -149,6 +295,15 @@ public class SettingsActivity extends Activity {
         tvVersion.setTextColor(0xFF888888);
         tvVersion.setPadding(0, 20, 0, 10);
         layout.addView(tvVersion);
+
+        TextView tvNovember = new TextView(this);
+        tvNovember.setText("November is coming...");
+        tvNovember.setTextColor(0xFF666666);
+        tvNovember.setTextSize(11);
+        tvNovember.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        tvNovember.setPadding(0, 40, 0, 20);
+        layout.addView(tvNovember, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         setContentView(scrollView);
 
@@ -287,11 +442,32 @@ public class SettingsActivity extends Activity {
                 prefs.setTemperature(seekTemperature.getProgress() / 10f);
                 prefs.setSystemPrompt(etSystemPrompt.getText().toString().trim());
                 prefs.setStream(cbStream.isChecked());
+                prefs.setSmoothText(cbSmooth.isChecked());
+                prefs.setThinkingAnim(cbThinking.isChecked());
                 int imgPos = spinnerImageModel.getSelectedItemPosition();
                 prefs.setImageModel(imgPos > 0 && imgPos < imageModelList.size() ? imageModelList.get(imgPos) : "");
                 prefs.setImageRemember(cbRememberImage.isChecked() && imgPos > 0);
 
+                prefs.setTrimContext(cbTrim.isChecked());
+                int trimLimit = Prefs.DEFAULT_TRIM_LIMIT;
+                try {
+                    trimLimit = Integer.parseInt(etTrimLimit.getText().toString().trim());
+                } catch (Exception ignored) {}
+                prefs.setTrimLimit(trimLimit);
+                prefs.setCompressContext(cbCompress.isChecked());
+                prefs.setLogCompress(cbLogCompress.isChecked());
+                String compressPrompt = etCompressPrompt.getText().toString().trim();
+                // Если промпт пуст или совпадает со стандартным, храним пустой (будет браться стандартный для языка)
+                if (compressPrompt.length() == 0
+                        || compressPrompt.equals(Prefs.DEFAULT_COMPRESS_PROMPT_RU.trim())
+                        || compressPrompt.equals(Prefs.DEFAULT_COMPRESS_PROMPT_EN.trim())) {
+                    compressPrompt = "";
+                }
+                prefs.setCompressPrompt(compressPrompt);
+
                 boolean nowRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+                AppLog.d("Settings", "Saved: model=" + prefs.getModel() + ", stream=" + prefs.isStream()
+                    + ", temp=" + prefs.getTemperature() + ", lang=" + prefs.getLanguage());
                 Toast.makeText(SettingsActivity.this, nowRu ? "Сохранено" : "Saved", Toast.LENGTH_SHORT).show();
                 finish();
             }

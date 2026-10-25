@@ -10,8 +10,8 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **Streaming responses** - the answer is typed out gradually as Gemini generates it; can be turned off in Settings to get the full answer at once (the old behavior)
 - **Chat history** - chats are saved to a local SQLite database; open, rename or delete them from the History screen
 - **Copy by long press** - hold any message bubble to copy its text to the clipboard
-- **Compact main screen** - one menu button (three bars) opens a screen with Settings, New chat, Back to chat and the list of saved chats; the Tools button next to the input field holds the Image button and the Search checkbox
-- **Markdown in answers** - headings, bullet lists, **bold**, *italic* and ~~strikethrough~~ are rendered in the model's replies
+- **Compact main screen** - one menu button (three bars) opens a screen with Settings, New chat, Back to chat and the list of saved chats; the single + button next to the input field opens a bottom panel with Photo, Image and the Search checkbox
+- **Markdown in answers** - headings, bullet lists, quotes, tables, horizontal rules, **bold**, *italic*, ~~strikethrough~~, `inline code` and code blocks (black background) are rendered in the model's replies; `[text](url)` links and bare http(s) addresses are blue and clickable; `![alt](https://...)` images are downloaded and shown inline (tap an image to open it in the browser; if the download fails, a link is shown instead)
 - **Clear error messages** - API errors (quota, invalid key, overloaded server, timeout and so on) are shown in a dialog with a short explanation and the original server message
 - **State survives screen rotation** - the chat, the typed text, the attached image and a response that is still being generated are kept when the activity is recreated
 - **Google Search grounding** - optional Search checkbox in Tools: the model can search the web and the answer ends with a numbered list of sources
@@ -74,7 +74,7 @@ On first launch the app asks you to choose a language, then walks you through en
 
 **Sending a message** - type in the input field and tap Send.
 
-**Attaching an image** - tap the + button, pick a photo from your gallery. The image is scaled to a maximum of 512 px on the long side and compressed (quality 60) before sending. A preview appears above the input field; tap the cross to remove it.
+**Attaching an image** - tap the + button, choose Photo in the bottom panel and pick a photo from your gallery. The image is scaled to a maximum of 512 px on the long side and compressed (quality 60) before sending. A preview appears above the input field; tap the cross to remove it.
 
 **Generating an image** - type `/image <description>` and tap Send. The app loads the model list from the API, keeps the models with `image` in the name and shows them in a selection dialog. The dialog warns that on the Free plan no model can generate images, and has a "Remember choice" checkbox at the bottom: if it is ticked, the picked model is saved and the next `/image` runs without asking. After you pick a model, the generated image is displayed inline in the chat. The Gemini API does not report whether a model is free, so if the chosen model does not work on your key (for example, no free quota), the error is shown and you can try another model.
 
@@ -86,8 +86,10 @@ On first launch the app asks you to choose a language, then walks you through en
 - Adjust temperature
 - Write a system prompt
 - Turn streaming (gradual typing of the answer) on or off
+- Turn smooth text appearance on or off (the streamed text is typed out smoothly instead of appearing in chunks; works only while streaming is on)
+- Turn the waiting animation (three animated dots shown before the answer starts) on or off
 
-**Tools** - the Tools button next to the input field opens a dialog with the Image button (generates an image from the text typed in the input field, same as `/image`) and the Search checkbox (Google Search). A star on the button means that Search is on.
+**Tools** - the + button next to the input field opens a bottom panel with the Photo button (pick a picture from the gallery), the Image button (generates an image from the text typed in the input field, same as `/image`) and the Search checkbox (Google Search). A star on the + button (+*) means that Search is on.
 
 **Streaming** - by default the answer appears gradually while Gemini is writing it. To get the full answer at once, as in earlier versions, turn off the streaming checkbox in Settings and tap Save.
 
@@ -105,7 +107,7 @@ On first launch the app asks you to choose a language, then walks you through en
 app/src/main/java/com/geminiapp/chat/
 ├── MainActivity.java          - chat screen, image picker, message list, error dialogs
 ├── GeminiApi.java             - all API calls (chat, image gen, model list)
-├── ChatAdapter.java           - ListView adapter for chat bubbles, Markdown rendering, copy on long press
+├── ChatAdapter.java           - ListView adapter for chat bubbles, Markdown rendering (text, code, links, tables, inline images with a small in-memory cache), copy on long press
 ├── ChatDatabase.java          - SQLite storage for chats and messages
 ├── ChatHistoryActivity.java   - saved chats list (open, rename, delete)
 ├── SettingsActivity.java      - settings screen
@@ -114,6 +116,7 @@ app/src/main/java/com/geminiapp/chat/
 ├── Prefs.java                 - SharedPreferences wrapper
 ├── PendingState.java          - static state that keeps a running request, input text and attached image across activity recreation
 ├── Base64Compat.java          - Base64 encoder/decoder that works on any Android version (android.util.Base64 appeared only in API 8)
+├── TypingDotsView.java        - animated three dots shown while the answer has not started yet (drawn by hand, works on any Android version)
 └── Tls12SocketFactory.java    - TLS 1.2 patch for old Android versions
 ```
 
@@ -133,7 +136,7 @@ Streaming uses the `streamGenerateContent?alt=sse` endpoint (Server-Sent Events)
 
 Error handling: the HTTP code and status returned by the API are parsed in `GeminiApi.formatHttpError` and turned into a readable dialog by `MainActivity.showErrorDialog` (quota exhausted, rate limit, invalid key, permission denied, model not found, server overloaded, timeout, empty response and others). The request always goes to the model chosen in Settings; there is no automatic switching to another model.
 
-Default model: `gemini-2.5-flash`. The image model is not fixed: the list of image models is discovered at runtime and you choose one each time you use `/image`.
+Default model: `gemini-flash-lite-latest`. The image model is not fixed: the list of image models is discovered at runtime and you choose one each time you use `/image`.
 
 Google Search: when the Search checkbox in Tools is ticked, the request gets `"tools": [{"google_search": {}}]`. The model decides by itself whether to search. Sources are taken from `groundingMetadata.groundingChunks` of the response (in streaming mode from every chunk, without duplicates) and appended to the end of the answer; the links are Google redirect links with the site name as the title. Search has a monthly free quota and is billed beyond it; a model without search support returns an error. Text is now collected from all response parts, not only the first one.
 

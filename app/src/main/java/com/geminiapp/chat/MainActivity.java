@@ -13,7 +13,9 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -60,6 +62,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private long currentChatId = -1;
     private boolean pendingResponse = false;
 
+    // Автопрокрутка: список тянется вниз только если пользователь уже внизу и не трогает экран
+    private boolean userTouchingChat = false;
+    private boolean alignScheduled = false;
+
     // Режим изменения сообщения: индекс изменяемого сообщения (-1 - обычный режим)
     private int editingIndex = -1;
     private String editDraftText = "";
@@ -73,6 +79,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private int ctxSummaryCount = 0;
     private LinearLayout compressBar;
     private TextView tvCompress;
+    private android.widget.ProgressBar compressProgress;
 
     // Плавное появление текста: показанная часть постепенно догоняет полученную
     private static final int REVEAL_TICK_MS = 50;
@@ -189,9 +196,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         compressBar.addView(tvCompress, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        android.widget.ProgressBar compressProgress = new android.widget.ProgressBar(
+        compressProgress = new android.widget.ProgressBar(
                 this, null, android.R.attr.progressBarStyleHorizontal);
         compressProgress.setIndeterminate(true);
+        compressProgress.setMax(100);
         LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         progressParams.setMargins(0, dp(4), 0, 0);
@@ -238,7 +246,27 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 startEdit(position);
             }
         });
+        adapter.setResponseActionListener(new ChatAdapter.ResponseActionListener() {
+            @Override
+            public boolean isBusy() {
+                return pendingResponse;
+            }
+
+            @Override
+            public void onEditResponse(int position) {
+                startEditResponse(position);
+            }
+        });
         lvChat.setAdapter(adapter);
+        lvChat.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                int a = event.getAction() & 0xFF;
+                if (a == MotionEvent.ACTION_DOWN) userTouchingChat = true;
+                else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) userTouchingChat = false;
+                return false;
+            }
+        });
         showLegacyTlsHint();
 
         updateBanner();
@@ -407,9 +435,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
             startReveal();
             return;
         }
+        boolean pinned = shouldFollowChat();
         messages.set(messages.size() - 1, new GeminiApi.Message("model", textSoFar));
         adapter.notifyDataSetChanged();
-        lvChat.setSelection(messages.size() - 1);
+        if (pinned) scrollChatToBottom();
     }
 
     @Override
@@ -429,9 +458,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         AppLog.d("UI", "Response received, chars=" + (text != null ? text.length() : 0));
         stopReveal();
         if (messages.size() > 0) {
+            boolean pinned = shouldFollowChat();
             messages.set(messages.size() - 1, new GeminiApi.Message("model", text));
             adapter.notifyDataSetChanged();
-            lvChat.setSelection(messages.size() - 1);
+            if (pinned) scrollChatToBottom();
         }
         btnSend.setEnabled(true);
         btnAttach.setEnabled(true);
@@ -443,11 +473,12 @@ public class MainActivity extends Activity implements PendingState.Listener {
     @Override
     public void onPendingImage(String base64png) {
         stopReveal();
+        boolean pinned = shouldFollowChat();
         if (messages.size() > 0) {
             messages.set(messages.size() - 1, new GeminiApi.Message("model", "", base64png, true));
         }
         adapter.notifyDataSetChanged();
-        lvChat.setSelection(messages.size() - 1);
+        if (pinned) scrollChatToBottom();
         btnSend.setEnabled(true);
         btnAttach.setEnabled(true);
         pendingResponse = false;
@@ -765,6 +796,8 @@ public class MainActivity extends Activity implements PendingState.Listener {
         messages.add(new GeminiApi.Message("model", "..."));
         pendingResponse = true;
         adapter.notifyDataSetChanged();
+        // Отправка сообщения: всегда прокручиваем вниз
+        scrollChatToBottom();
 
         btnSend.setEnabled(false);
         btnAttach.setEnabled(false);
@@ -856,9 +889,19 @@ public class MainActivity extends Activity implements PendingState.Listener {
         List<GeminiApi.Message> request = new ArrayList<GeminiApi.Message>();
         request.add(new GeminiApi.Message("user", sb.toString()));
 
-        // Обычный (не потоковый) запрос, промпт сжатия - в системной инструкции, без поиска
+        // Потоковый запрос: прогрессбар движется по мере написания пересказа. Промпт сжатия - в системной инструкции, без поиска
         geminiApi.sendMessage(apiKey, prefs.getModel(), 0.3f, prefs.getCompressPrompt(), request,
-            false, false, "", new GeminiApi.Callback() {
+            true, false, "", new GeminiApi.StreamCallback() {
+                @Override
+                public void onPartial(final String textSoFar) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateCompressProgress(textSoFar.length());
+                        }
+                    });
+                }
+
                 @Override
                 public void onSuccess(final String text) {
                     mainHandler.post(new Runnable() {
@@ -910,10 +953,24 @@ public class MainActivity extends Activity implements PendingState.Listener {
         dispatchRequest(apiKey, isRu, withSummary(prefs.getSystemPrompt(), isRu), copyRange(ctxSummaryCount, h));
     }
 
+    // Обновляет прогрессбар по длине уже написанного пересказа. Итоговая длина заранее неизвестна,
+    // поэтому доля растёт быстро в начале, замедляется к концу и не доходит до 100%, пока ответ не закончился.
+    private void updateCompressProgress(int summaryChars) {
+        if (compressBar.getVisibility() != View.VISIBLE) return;
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        int pct = (int) Math.round(100.0 * (1.0 - Math.exp(-summaryChars / 500.0)));
+        if (pct > 97) pct = 97;
+        if (compressProgress.isIndeterminate()) compressProgress.setIndeterminate(false);
+        compressProgress.setProgress(pct);
+        tvCompress.setText((isRu ? "Сжатие диалога... " : "Compressing dialog... ") + pct + "%");
+    }
+
     private void showCompressing(boolean on) {
         if (on) {
             boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
             tvCompress.setText(isRu ? "Сжатие диалога..." : "Compressing dialog...");
+            // Пока модель не начала писать пересказ, доля готовности неизвестна: бесконечный прогрессбар
+            compressProgress.setIndeterminate(true);
         }
         compressBar.setVisibility(on ? View.VISIBLE : View.GONE);
     }
@@ -1078,6 +1135,74 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
             if (imm != null) imm.showSoftInput(etMessage, 0);
         } catch (Throwable ignored) {}
+    }
+
+    // ---- Изменение ответа модели ----
+
+    // Окно с текстом ответа: после «Сохранить» ответ в чате (и в БД) заменяется на изменённый.
+    // Сообщения после него не удаляются: модель увидит новую версию в истории при следующем запросе.
+    private void startEditResponse(final int position) {
+        final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (pendingResponse) {
+            Toast.makeText(this, isRu ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (position < 0 || position >= messages.size()) return;
+        GeminiApi.Message m = messages.get(position);
+        if (!"model".equals(m.role) || m.isGeneratedImage) return;
+
+        final EditText input = new EditText(this);
+        input.setText(m.text != null ? m.text : "");
+        input.setGravity(android.view.Gravity.TOP);
+        input.setMinLines(6);
+
+        android.widget.ScrollView box = new android.widget.ScrollView(this);
+        box.setPadding(dp(8), dp(4), dp(8), dp(4));
+        box.addView(input, new android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.FILL_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+            .setTitle(isRu ? "Изменить ответ" : "Edit response")
+            .setView(box)
+            .setPositiveButton(isRu ? "Сохранить" : "Save", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    applyResponseEdit(position, input.getText().toString());
+                }
+            })
+            .setNegativeButton(isRu ? "Отмена" : "Cancel", null)
+            .show();
+    }
+
+    private void applyResponseEdit(int position, String newText) {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (pendingResponse || position < 0 || position >= messages.size()) return;
+        GeminiApi.Message old = messages.get(position);
+        if (!"model".equals(old.role) || old.isGeneratedImage) return;
+
+        String oldText = old.text != null ? old.text : "";
+        if (newText.equals(oldText)) return;
+        if (newText.trim().length() == 0) {
+            Toast.makeText(this, isRu ? "Ответ не может быть пустым, изменения не сохранены"
+                                  : "The response cannot be empty, changes were not saved", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        AppLog.d("UI", "Edit response #" + position + " of " + messages.size());
+        // Пересказ, который заменяет это сообщение, стал неактуальным
+        if (ctxSummaryCount > position) clearSummaryState();
+
+        messages.set(position, new GeminiApi.Message("model", newText));
+        adapter.notifyDataSetChanged();
+
+        // Если сообщение уже в БД - обновляем его; иначе оно сохранится вместе с новыми
+        if (currentChatId != -1 && chatDb.chatExists(currentChatId)
+                && position < chatDb.getMessageCount(currentChatId)) {
+            chatDb.updateMessageText(currentChatId, position, newText);
+        } else {
+            saveNewMessages();
+        }
     }
 
     // Выход из режима изменения; restoreDraft - вернуть в поле то, что было до изменения
@@ -1271,10 +1396,11 @@ public class MainActivity extends Activity implements PendingState.Listener {
             if (revealShown < len && Character.isHighSurrogate(revealTarget.charAt(revealShown - 1))) {
                 revealShown++;
             }
+            boolean pinned = shouldFollowChat();
             messages.set(messages.size() - 1,
                 new GeminiApi.Message("model", revealTarget.substring(0, revealShown)));
             adapter.notifyDataSetChanged();
-            lvChat.setSelection(messages.size() - 1);
+            if (pinned) scrollChatToBottom();
         }
 
         if (revealShown < len) {
@@ -1282,6 +1408,57 @@ public class MainActivity extends Activity implements PendingState.Listener {
         } else if (revealFinishing) {
             finishSuccess(revealFinalText);
         }
+    }
+
+    // ---- Автопрокрутка ----
+
+    // Пользователь у самого низа списка (последний элемент виден до конца)?
+    private boolean isChatAtBottom() {
+        int count = adapter.getCount();
+        int childCount = lvChat.getChildCount();
+        if (count == 0 || childCount == 0) return true;
+        if (lvChat.getFirstVisiblePosition() + childCount < count) return false;
+        View last = lvChat.getChildAt(childCount - 1);
+        return last.getBottom() <= lvChat.getHeight() - lvChat.getPaddingBottom() + dp(4);
+    }
+
+    // Тянуть вниз только если пользователь внизу и сейчас не листает
+    private boolean shouldFollowChat() {
+        return !userTouchingChat && isChatAtBottom();
+    }
+
+    // Прокрутка в самый низ: низ последнего сообщения прижимается к низу списка (даже если оно длиннее экрана)
+    private void scrollChatToBottom() {
+        int count = adapter.getCount();
+        if (count == 0) return;
+        lvChat.setSelection(count - 1);
+        if (alignScheduled) return;
+        alignScheduled = true;
+        final ViewTreeObserver vto = lvChat.getViewTreeObserver();
+        vto.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                alignScheduled = false;
+                ViewTreeObserver cur = lvChat.getViewTreeObserver();
+                if (cur.isAlive()) cur.removeOnPreDrawListener(this);
+                // true - рисовать как есть; false - была корректировка, кадр перерисуется после нового layout
+                return !alignLastItemBottom();
+            }
+        });
+    }
+
+    private boolean alignLastItemBottom() {
+        int count = adapter.getCount();
+        int childCount = lvChat.getChildCount();
+        if (count == 0 || childCount == 0) return false;
+        if (lvChat.getFirstVisiblePosition() + childCount < count) return false;
+        View last = lvChat.getChildAt(childCount - 1);
+        int overflow = last.getBottom() - (lvChat.getHeight() - lvChat.getPaddingBottom());
+        if (overflow > 0) {
+            lvChat.setSelectionFromTop(count - 1, last.getTop() - overflow);
+            return true;
+        }
+        return false;
     }
 
     private void showErrorDialog(String rawError) {

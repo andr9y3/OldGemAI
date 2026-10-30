@@ -97,6 +97,19 @@ public class ChatAdapter extends BaseAdapter {
     public void setRegenerateListener(RegenerateListener l) {
         this.regenerateListener = l;
     }
+
+    // Кнопки «Копировать» и «Изменить» под ответом модели
+    public interface ResponseActionListener {
+        // true, пока ответ ещё генерируется (кнопки под ним не показываются)
+        boolean isBusy();
+        void onEditResponse(int position);
+    }
+
+    private ResponseActionListener responseActionListener;
+
+    public void setResponseActionListener(ResponseActionListener l) {
+        this.responseActionListener = l;
+    }
     private final List<GeminiApi.Message> messages;
 
     public ChatAdapter(Context context, List<GeminiApi.Message> messages) {
@@ -146,10 +159,9 @@ public class ChatAdapter extends BaseAdapter {
                 caption.setText(msg.text);
                 caption.setTextSize(13);
                 caption.setTextColor(0xFF888888);
-                attachCopyOnLongPress(caption, msg.text);
                 container.addView(caption);
             }
-            addRegenerateButton(container, position);
+            addActionButtons(container, position, null);
             return container;
         }
 
@@ -194,7 +206,6 @@ public class ChatAdapter extends BaseAdapter {
         bubble.setOrientation(LinearLayout.VERTICAL);
         bubble.setBackgroundResource(R.drawable.bubble_model);
         bubble.setPadding(dp(12), dp(8), dp(12), dp(8));
-        attachCopyOnLongPress(bubble, full);
 
         // Пока ответа ещё нет (заглушка "..."), показываем анимацию из трёх точек
         if ("...".equals(full) && new Prefs(context).isThinkingAnim()) {
@@ -219,7 +230,7 @@ public class ChatAdapter extends BaseAdapter {
 
         bubbleRow.addView(bubble);
         container.addView(bubbleRow);
-        addRegenerateButton(container, position);
+        addActionButtons(container, position, full);
         return container;
     }
 
@@ -239,7 +250,6 @@ public class ChatAdapter extends BaseAdapter {
             tv.setText(parseMarkdown(p.text));
             tv.setLinkTextColor(LINK_COLOR);
             tv.setMovementMethod(LinkMovementMethod.getInstance());
-            attachCopyOnLongPress(tv, fullText);
             bubble.addView(tv, new LinearLayout.LayoutParams(wrap, wrap));
             return;
         }
@@ -252,7 +262,6 @@ public class ChatAdapter extends BaseAdapter {
             tv.setBackgroundColor(CODE_BG);
             tv.setPadding(dp(8), dp(6), dp(8), dp(6));
             tv.setText(p.text);
-            attachCopyOnLongPress(tv, p.text);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(fill, wrap);
             lp.setMargins(0, dp(4), 0, dp(4));
             bubble.addView(tv, lp);
@@ -295,7 +304,6 @@ public class ChatAdapter extends BaseAdapter {
                 }
                 table.addView(tr, new TableLayout.LayoutParams(fill, wrap));
             }
-            attachCopyOnLongPress(table, fullText);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(wrap, wrap);
             lp.setMargins(0, dp(4), 0, dp(4));
             bubble.addView(table, lp);
@@ -1023,24 +1031,6 @@ public class ChatAdapter extends BaseAdapter {
         return null;
     }
 
-    @SuppressWarnings("deprecation")
-    private void attachCopyOnLongPress(View view, final String text) {
-        view.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                if (text == null || text.length() == 0) return false;
-                android.text.ClipboardManager cm = (android.text.ClipboardManager)
-                        context.getSystemService(Context.CLIPBOARD_SERVICE);
-                if (cm == null) return false;
-                cm.setText(text);
-                boolean ru = Prefs.LANG_RU.equals(new Prefs(context).getLanguage());
-                android.widget.Toast.makeText(context, ru ? "Скопировано" : "Copied",
-                        android.widget.Toast.LENGTH_SHORT).show();
-                return true;
-            }
-        });
-    }
-
     // Долгое нажатие на сообщении пользователя: меню «Изменить» / «Копировать» вместо немедленного копирования
     private void attachUserMessageMenu(View view, final String text, final int position) {
         view.setOnLongClickListener(new View.OnLongClickListener() {
@@ -1084,34 +1074,82 @@ public class ChatAdapter extends BaseAdapter {
         }
     }
 
-    // Иконка перегенерации под последним ответом модели
-    private void addRegenerateButton(LinearLayout container, int position) {
-        if (regenerateListener == null || position != messages.size() - 1) return;
-        if (!regenerateListener.canRegenerate()) return;
+    // Цвет иконок под ответом: окно приложения чёрное (Theme.Black), поэтому иконки белые
+    private static final int ICON_COLOR = 0xFFFFFFFF;
 
-        boolean ru = Prefs.LANG_RU.equals(new Prefs(context).getLanguage());
+    // Ряд кнопок под ответом модели: перегенерация (только под последним ответом),
+    // копирование и изменение текста ответа. text == null - у сообщения нет текста
+    // для копирования (сгенерированная картинка): остаётся только перегенерация.
+    private void addActionButtons(LinearLayout container, final int position, final String text) {
+        final boolean ru = Prefs.LANG_RU.equals(new Prefs(context).getLanguage());
+        boolean isLast = position == messages.size() - 1;
+
+        boolean showRegen = regenerateListener != null && isLast && regenerateListener.canRegenerate();
+        boolean hasText = text != null && text.length() > 0;
+        boolean busy = responseActionListener != null && responseActionListener.isBusy();
+        // Пока последний ответ ещё печатается, копировать и менять его нельзя
+        boolean showCopy = hasText && !(busy && isLast);
+        boolean showEdit = showCopy && responseActionListener != null;
+        if (!showRegen && !showCopy) return;
+
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+
+        if (showRegen) {
+            row.addView(makeActionButton(new RegenerateIcon(dp(18), ICON_COLOR),
+                    ru ? "Перегенерировать ответ" : "Regenerate response",
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            RegenerateListener l = regenerateListener;
+                            if (l != null) l.onRegenerate();
+                        }
+                    }));
+        }
+        if (showCopy) {
+            row.addView(makeActionButton(new CopyIcon(dp(18), ICON_COLOR),
+                    ru ? "Копировать ответ" : "Copy response",
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            copyText(text);
+                        }
+                    }));
+        }
+        if (showEdit) {
+            row.addView(makeActionButton(new PencilIcon(dp(17), ICON_COLOR),
+                    ru ? "Изменить ответ" : "Edit response",
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            ResponseActionListener l = responseActionListener;
+                            if (l != null) l.onEditResponse(position);
+                        }
+                    }));
+        }
+
+        container.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    // Одна кнопка-иконка с подсветкой при нажатии (светлая, т.к. фон чёрный)
+    private android.widget.ImageButton makeActionButton(android.graphics.drawable.Drawable icon,
+                                                         String description,
+                                                         View.OnClickListener click) {
         android.widget.ImageButton btn = new android.widget.ImageButton(context);
-        btn.setImageDrawable(new RegenerateIcon(dp(18), 0xFF555555));
+        btn.setImageDrawable(icon);
 
         android.graphics.drawable.StateListDrawable bg = new android.graphics.drawable.StateListDrawable();
         bg.addState(new int[]{android.R.attr.state_pressed},
-                new android.graphics.drawable.ColorDrawable(0x33000000));
+                new android.graphics.drawable.ColorDrawable(0x33FFFFFF));
         bg.addState(new int[]{}, new android.graphics.drawable.ColorDrawable(0x00000000));
         btn.setBackgroundDrawable(bg);
         btn.setPadding(dp(10), dp(6), dp(10), dp(6));
-        btn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                RegenerateListener l = regenerateListener;
-                if (l != null) l.onRegenerate();
-            }
-        });
+        btn.setOnClickListener(click);
         try {
-            btn.setContentDescription(ru ? "Перегенерировать ответ" : "Regenerate response");
+            btn.setContentDescription(description);
         } catch (Throwable ignored) {}
-
-        container.addView(btn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return btn;
     }
 
     // Иконка ic_rotate_clockwise (SVG 21x18), нарисована кодом: VectorDrawable на старых Android недоступен.
@@ -1183,6 +1221,159 @@ public class ChatAdapter extends BaseAdapter {
             arcPaint.setColorFilter(cf);
             headPaint.setColorFilter(cf);
         }
+
+        @Override
+        public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
+
+    // Иконка «копировать» (SVG 22x27: две обведённые страницы), нарисована кодом.
+    // Координаты путей и толщина линии (2) взяты из SVG.
+    private static class CopyIcon extends android.graphics.drawable.Drawable {
+        private static final float W = 22f;
+        private static final float H = 27f;
+
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path back = new android.graphics.Path();
+        private final android.graphics.Path front = new android.graphics.Path();
+        private final int height;
+
+        CopyIcon(int height, int color) {
+            this.height = height;
+
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setStrokeJoin(android.graphics.Paint.Join.MITER);
+            paint.setStrokeMiter(10f);
+            paint.setColor(color);
+
+            // Задняя страница
+            back.moveTo(17.5f, 21.1664f);
+            back.lineTo(17.5f, 22.9815f);
+            back.cubicTo(17.5f, 24.1916f, 16.5f, 25.2f, 15.3f, 25.2f);
+            back.lineTo(3.9f, 25.2f);
+            back.cubicTo(2.7f, 25.2f, 1.7f, 24.1916f, 1.7f, 22.9815f);
+            back.lineTo(1.7f, 7.14959f);
+            back.cubicTo(1.7f, 5.93951f, 2.7f, 4.93109f, 3.9f, 4.93109f);
+
+            // Передняя страница
+            front.moveTo(18.2f, 21.4689f);
+            front.lineTo(6.8f, 21.4689f);
+            front.cubicTo(5.6f, 21.4689f, 4.6f, 20.4605f, 4.6f, 19.2504f);
+            front.lineTo(4.6f, 3.41848f);
+            front.cubicTo(4.6f, 2.2084f, 5.6f, 1.20001f, 6.8f, 1.20001f);
+            front.lineTo(18.2f, 1.20001f);
+            front.cubicTo(19.4f, 1.20001f, 20.4f, 2.2084f, 20.4f, 3.41848f);
+            front.lineTo(20.4f, 19.1496f);
+            front.cubicTo(20.4f, 20.4605f, 19.4f, 21.4689f, 18.2f, 21.4689f);
+            front.close();
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            float s = Math.min(b.width() / W, b.height() / H);
+            canvas.save();
+            canvas.translate(b.left + (b.width() - W * s) / 2f, b.top + (b.height() - H * s) / 2f);
+            canvas.scale(s, s);
+            canvas.drawPath(back, paint);
+            canvas.drawPath(front, paint);
+            canvas.restore();
+        }
+
+        @Override
+        public int getIntrinsicWidth() { return Math.round(height * W / H); }
+
+        @Override
+        public int getIntrinsicHeight() { return height; }
+
+        @Override
+        public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
+
+        @Override
+        public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
+
+    // Иконка «карандаш» (SVG 297.068x297.068, заливка), нарисована кодом.
+    // Относительные команды SVG (l, c, s) пересчитаны в абсолютные координаты.
+    private static class PencilIcon extends android.graphics.drawable.Drawable {
+        private static final float VIEW = 297.068f;
+
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path path = new android.graphics.Path();
+        private final int size;
+
+        PencilIcon(int size, int color) {
+            this.size = size;
+
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(color);
+
+            // Внешний контур
+            path.moveTo(288.758f, 46.999f);
+            path.lineTo(250.068f, 8.309f);
+            path.cubicTo(244.721f, 2.955f, 237.613f, 0.006f, 230.048f, 0.006f);
+            path.cubicTo(222.483f, 0.006f, 215.376f, 2.949f, 210.028f, 8.303f);
+            path.lineTo(28.632f, 190.266f);
+            path.lineTo(0f, 297.061f);
+            path.lineTo(107.547f, 268.256f);
+            path.lineTo(288.745f, 87.045f);
+            path.cubicTo(294.105f, 81.691f, 297.068f, 74.583f, 297.068f, 67.019f);
+            path.cubicTo(297.068f, 59.455f, 294.105f, 52.347f, 288.758f, 46.999f);
+            path.close();
+
+            // Корпус карандаша
+            path.moveTo(43.478f, 193.583f);
+            path.lineTo(180.71f, 55.823f);
+            path.lineTo(241.264f, 116.364f);
+            path.lineTo(103.761f, 253.866f);
+            path.lineTo(43.478f, 193.583f);
+            path.close();
+
+            // Кончик
+            path.moveTo(37.719f, 206.006f);
+            path.lineTo(91.087f, 259.368f);
+            path.lineTo(48.683f, 270.718f);
+            path.lineTo(26.35f, 248.384f);
+            path.lineTo(37.719f, 206.006f);
+            path.close();
+
+            // Ластик
+            path.moveTo(279.657f, 77.951f);
+            path.lineTo(260.164f, 97.456f);
+            path.lineTo(199.585f, 36.915f);
+            path.lineTo(219.129f, 17.39f);
+            path.cubicTo(224.952f, 11.542f, 235.145f, 11.548f, 240.98f, 17.39f);
+            path.lineTo(279.67f, 56.086f);
+            path.cubicTo(282.594f, 59.004f, 284.214f, 62.886f, 284.214f, 67.012f);
+            path.cubicTo(284.214f, 71.139f, 282.594f, 75.027f, 279.657f, 77.951f);
+            path.close();
+        }
+
+        @Override
+        public void draw(android.graphics.Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            float s = Math.min(b.width(), b.height()) / VIEW;
+            canvas.save();
+            canvas.translate(b.left + (b.width() - VIEW * s) / 2f, b.top + (b.height() - VIEW * s) / 2f);
+            canvas.scale(s, s);
+            canvas.drawPath(path, paint);
+            canvas.restore();
+        }
+
+        @Override
+        public int getIntrinsicWidth() { return size; }
+
+        @Override
+        public int getIntrinsicHeight() { return size; }
+
+        @Override
+        public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
 
         @Override
         public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }

@@ -9,7 +9,8 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **Image generation** - type `/image <prompt>` to generate an image with Gemini; the app loads the list of image models and lets you pick one in a dialog (see below)
 - **Streaming responses** - the answer is typed out gradually as Gemini generates it; can be turned off in Settings to get the full answer at once (the old behavior)
 - **Chat history** - chats are saved to a local SQLite database; open, rename or delete them from the History screen
-- **Copy by long press** - hold any message bubble to copy its text to the clipboard
+- **Copy and edit model answers** - under every text answer there are Copy and Edit icons next to the Regenerate icon (all icons are white); Edit opens a window where you can change the answer text, the corrected answer is saved to the chat history
+- **Your messages** - hold one of your own messages to get a menu with Edit and Copy
 - **Compact main screen** - one menu button (three bars) opens a screen with Settings, New chat, Back to chat and the list of saved chats; the single + button next to the input field opens a bottom panel with Photo, Image and the Search checkbox
 - **Markdown in answers** - headings, bullet lists, quotes, tables, horizontal rules, **bold**, *italic*, ~~strikethrough~~, `inline code` and code blocks (black background) are rendered in the model's replies; `[text](url)` links and bare http(s) addresses are blue and clickable; `![alt](https://...)` images are downloaded and shown inline (tap an image to open it in the browser; if the download fails, a link is shown instead)
 - **Clear error messages** - API errors (quota, invalid key, overloaded server, timeout and so on) are shown in a dialog with a short explanation and the original server message
@@ -95,7 +96,9 @@ On first launch the app asks you to choose a language, then walks you through en
 
 **Chat history** - every chat is saved automatically. Tap the menu button (three bars) to see saved chats and tap one to open it. Long-press a chat in the list to open, rename or delete it; the menu in the History screen has Clear all.
 
-**Copy text** - long-press a message bubble to copy its text.
+**Copy text** - tap the Copy icon under a model answer to copy it. To copy one of your own messages, long-press it and choose Copy.
+
+**Edit a model answer** - tap the pencil icon under the answer, change the text in the window and tap Save. The messages after it stay as they are; the model sees the changed answer in the history on the next request. Unavailable while a response is being generated.
 
 **New chat** - the New chat button in the menu starts an empty chat. The previous chat stays saved. Starting a new chat or opening another one is unavailable while a response is being generated.
 
@@ -107,7 +110,7 @@ On first launch the app asks you to choose a language, then walks you through en
 app/src/main/java/com/geminiapp/chat/
 ├── MainActivity.java          - chat screen, image picker, message list, error dialogs
 ├── GeminiApi.java             - all API calls (chat, image gen, model list)
-├── ChatAdapter.java           - ListView adapter for chat bubbles, Markdown rendering (text, code, links, tables, inline images with a small in-memory cache), copy on long press
+├── ChatAdapter.java           - ListView adapter for chat bubbles, Markdown rendering (text, code, links, tables, inline images with a small in-memory cache), icons under answers (regenerate, copy, edit), menu on long press for your own messages
 ├── ChatDatabase.java          - SQLite storage for chats and messages
 ├── ChatHistoryActivity.java   - saved chats list (open, rename, delete)
 ├── SettingsActivity.java      - settings screen

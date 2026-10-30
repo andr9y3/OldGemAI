@@ -114,6 +114,22 @@ public class ChatDatabase extends SQLiteOpenHelper {
                 new String[]{String.valueOf(chatId)});
     }
 
+    /**
+     * Заменяет текст сообщения с порядковым номером index (счёт с нуля, по возрастанию id) в чате.
+     * Нужно для изменения ответа модели.
+     */
+    public synchronized void updateMessageText(long chatId, int index, String text) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.execSQL("UPDATE " + TABLE_MESSAGES + " SET " + COL_MSG_TEXT + "=? WHERE " + COL_MSG_ID
+                + "=(SELECT " + COL_MSG_ID + " FROM " + TABLE_MESSAGES + " WHERE " + COL_MSG_CHAT_ID
+                + "=? ORDER BY " + COL_MSG_ID + " ASC LIMIT 1 OFFSET " + index + ")",
+                new Object[]{text != null ? text : "", Long.valueOf(chatId)});
+
+        ContentValues chatUpdate = new ContentValues();
+        chatUpdate.put(COL_CHAT_UPDATED, System.currentTimeMillis());
+        db.update(TABLE_CHATS, chatUpdate, COL_CHAT_ID + "=?", new String[]{String.valueOf(chatId)});
+    }
+
     public int getMessageCount(long chatId) {
         SQLiteDatabase db = getReadableDatabase();
         Cursor c = db.rawQuery("SELECT COUNT(*) FROM " + TABLE_MESSAGES +

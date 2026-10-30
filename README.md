@@ -201,3 +201,12 @@ Notes:
 - Wolfius supports Android 1.5-4.4 only. On Android 1.0 and 1.1 the app is not supported at all.
 - On Android 1.5 (API 3) the icons under answers have no accessibility labels, because the system supports them only from API 4. The icons themselves work.
 
+### Tested devices
+
+The app was tested on real devices:
+
+- Android 2.3 - Samsung Galaxy Ace (GT-S5830i)
+- Android 4.4.2 - Samsung Galaxy S3 mini (GT-I8190)
+
+If the app works on another Android version older than 5.0, write to Telegram [@ialwaysloveyou0](https://t.me/ialwaysloveyou0) with the Android version and the device model, and it will be added to this list.
+

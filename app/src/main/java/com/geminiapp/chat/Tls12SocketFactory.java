@@ -8,8 +8,9 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 /**
- * Принудительно включает TLS 1.2 на Android 2.3–4.4,
+ * Принудительно включает TLS 1.2 на Android 4.1-4.4 (API 16-19),
  * где он есть в системе, но не включён по умолчанию.
+ * На Android 5.0+ (API 20+) патч не применяется: там TLS 1.2 и новее работают из коробки.
  */
 public class Tls12SocketFactory extends SSLSocketFactory {
 
@@ -59,6 +60,7 @@ public class Tls12SocketFactory extends SSLSocketFactory {
     }
 
     private Socket patch(Socket s) {
+        if (android.os.Build.VERSION.SDK_INT >= 20) return s;
         if (s instanceof SSLSocket) {
             ((SSLSocket) s).setEnabledProtocols(TLS_V12);
         }

@@ -157,12 +157,11 @@ The API key is sent in the `x-goog-api-key` request header, as Google's REST ref
 
 ## Screenshots
 
-<img width="320" height="480" alt="screenshot-20260619-001330" src="https://github.com/user-attachments/assets/25b9e920-b721-4b26-be03-535c02e1bc2b" />
-<img width="320" height="480" alt="screenshot-20260619-002222" src="https://github.com/user-attachments/assets/82b132f7-82d0-4e28-818e-85b0aeea7d47" />
-<img width="320" height="480" alt="screenshot-20260619-001302" src="https://github.com/user-attachments/assets/72a0fe94-5254-4332-8e3d-b12136791f18" />
-<img width="320" height="480" alt="screenshot-20260619-001316" src="https://github.com/user-attachments/assets/1fdf838e-1400-4105-b695-ae178755711c" />
-
-
+<img width="480" height="800" alt="изображение" src="https://github.com/user-attachments/assets/b389c7e8-835a-40e1-8244-34ba7019b166" />
+<img width="480" height="800" alt="изображение" src="https://github.com/user-attachments/assets/1e380a39-3e53-448c-8b16-172d61b64cc2" />
+<img width="480" height="800" alt="изображение" src="https://github.com/user-attachments/assets/d977ee37-8522-46f5-a79b-612312d7f925" />
+<img width="480" height="800" alt="изображение" src="https://github.com/user-attachments/assets/91b3516d-662f-4f5a-83b4-6a5c7afc32c1" />
+<img width="1078" height="6104" alt="Screenshot_20261030_210721_OldGemAI" src="https://github.com/user-attachments/assets/82c83b3f-0a3d-4e7b-a553-7efa4393f5e5" />
 
 ## Reporting Bugs
 

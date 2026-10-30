@@ -1077,6 +1077,22 @@ public class ChatAdapter extends BaseAdapter {
     // Цвет иконок под ответом: окно приложения чёрное (Theme.Black), поэтому иконки белые
     private static final int ICON_COLOR = 0xFFFFFFFF;
 
+    // Иконки Google Material Symbols (Rounded, fill), viewBox "0 -960 960 960", лицензия Apache 2.0
+    private static final String PATH_REFRESH =
+        "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-70q0-17 11.5-28.5T760-800"
+        + "q17 0 28.5 11.5T800-760v200q0 17-11.5 28.5T760-520H560q-17 0-28.5-11.5T520-560q0-17 11.5-28.5T560-600"
+        + "h128q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q68 0 124.5-34.5T692-367"
+        + "q8-14 22.5-19.5t29.5-.5q16 5 23 21t-1 30q-41 80-117 128t-169 48Z";
+    private static final String PATH_COPY =
+        "M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480"
+        + "q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-520"
+        + "q0-17 11.5-28.5T160-720q17 0 28.5 11.5T200-680v520h400q17 0 28.5 11.5T640-120q0 17-11.5 28.5T600-80H200Z"
+        + "m160-240v-480 480Z";
+    private static final String PATH_EDIT =
+        "M200-200h57l391-391-57-57-391 391v57Zm-40 80q-17 0-28.5-11.5T120-160v-97q0-16 6-30.5t17-25.5l505-504"
+        + "q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L313-143"
+        + "q-11 11-25.5 17t-30.5 6h-97Zm600-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z";
+
     // Ряд кнопок под ответом модели: перегенерация (только под последним ответом),
     // копирование и изменение текста ответа. text == null - у сообщения нет текста
     // для копирования (сгенерированная картинка): остаётся только перегенерация.
@@ -1096,7 +1112,7 @@ public class ChatAdapter extends BaseAdapter {
         row.setOrientation(LinearLayout.HORIZONTAL);
 
         if (showRegen) {
-            row.addView(makeActionButton(new RegenerateIcon(dp(18), ICON_COLOR),
+            row.addView(makeActionButton(new SvgIcon(dp(24), ICON_COLOR, PATH_REFRESH),
                     ru ? "Перегенерировать ответ" : "Regenerate response",
                     new View.OnClickListener() {
                         @Override
@@ -1107,7 +1123,7 @@ public class ChatAdapter extends BaseAdapter {
                     }));
         }
         if (showCopy) {
-            row.addView(makeActionButton(new CopyIcon(dp(18), ICON_COLOR),
+            row.addView(makeActionButton(new SvgIcon(dp(24), ICON_COLOR, PATH_COPY),
                     ru ? "Копировать ответ" : "Copy response",
                     new View.OnClickListener() {
                         @Override
@@ -1117,7 +1133,7 @@ public class ChatAdapter extends BaseAdapter {
                     }));
         }
         if (showEdit) {
-            row.addView(makeActionButton(new PencilIcon(dp(17), ICON_COLOR),
+            row.addView(makeActionButton(new SvgIcon(dp(24), ICON_COLOR, PATH_EDIT),
                     ru ? "Изменить ответ" : "Edit response",
                     new View.OnClickListener() {
                         @Override
@@ -1152,204 +1168,149 @@ public class ChatAdapter extends BaseAdapter {
         return btn;
     }
 
-    // Иконка ic_rotate_clockwise (SVG 21x18), нарисована кодом: VectorDrawable на старых Android недоступен.
-    // Координаты путей взяты из SVG, вертикальное отражение (scale(1, -1)) применяется при рисовании.
-    private static class RegenerateIcon extends android.graphics.drawable.Drawable {
-        private static final float W = 20f;
-        private static final float H = 18f;
-
-        private final android.graphics.Paint arcPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Paint headPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Path arc = new android.graphics.Path();
-        private final android.graphics.Path head = new android.graphics.Path();
-        private final int height;
-
-        RegenerateIcon(int height, int color) {
-            this.height = height;
-
-            arcPaint.setStyle(android.graphics.Paint.Style.STROKE);
-            arcPaint.setStrokeWidth(2f);
-            arcPaint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
-            arcPaint.setColor(color);
-
-            headPaint.setStyle(android.graphics.Paint.Style.FILL_AND_STROKE);
-            headPaint.setStrokeWidth(1f);
-            headPaint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
-            headPaint.setColor(color);
-
-            arc.moveTo(13.7198369f, 2.40683307f);
-            arc.cubicTo(12.2674265f, 0.921737027f, 10.2413548f, 0f, 8f, 0f);
-            arc.cubicTo(3.581722f, 0f, 0f, 3.581722f, 0f, 8f);
-            arc.cubicTo(0f, 12.418278f, 3.581722f, 16f, 8f, 16f);
-            arc.cubicTo(12.418278f, 16f, 16f, 12.418278f, 16f, 8f);
-
-            head.moveTo(13f, 9f);
-            head.lineTo(19f, 9f);
-            head.lineTo(16f, 5f);
-            head.close();
-        }
-
-        @Override
-        public void draw(android.graphics.Canvas canvas) {
-            android.graphics.Rect b = getBounds();
-            float s = Math.min(b.width() / W, b.height() / H);
-            canvas.save();
-            canvas.translate(b.left + (b.width() - W * s) / 2f, b.top + (b.height() - H * s) / 2f);
-            canvas.scale(s, s);
-            // +1 на толщину обводки, далее отражение по вертикали (y' = 16 - y)
-            canvas.translate(1f, 17f);
-            canvas.scale(1f, -1f);
-            canvas.drawPath(arc, arcPaint);
-            canvas.drawPath(head, headPaint);
-            canvas.restore();
-        }
-
-        @Override
-        public int getIntrinsicWidth() { return Math.round(height * W / H); }
-
-        @Override
-        public int getIntrinsicHeight() { return height; }
-
-        @Override
-        public void setAlpha(int alpha) {
-            arcPaint.setAlpha(alpha);
-            headPaint.setAlpha(alpha);
-        }
-
-        @Override
-        public void setColorFilter(android.graphics.ColorFilter cf) {
-            arcPaint.setColorFilter(cf);
-            headPaint.setColorFilter(cf);
-        }
-
-        @Override
-        public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
-    }
-
-    // Иконка «копировать» (SVG 22x27: две обведённые страницы), нарисована кодом.
-    // Координаты путей и толщина линии (2) взяты из SVG.
-    private static class CopyIcon extends android.graphics.drawable.Drawable {
-        private static final float W = 22f;
-        private static final float H = 27f;
+    // Иконка из SVG-пути (viewBox "0 -960 960 960"), нарисована кодом: VectorDrawable на старых Android недоступен.
+    // Разбирает команды M L H V C S Q T Z (заглавные и строчные); дуги Material-иконки здесь не используют.
+    private static class SvgIcon extends android.graphics.drawable.Drawable {
+        private static final float VIEW = 960f;
 
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Path back = new android.graphics.Path();
-        private final android.graphics.Path front = new android.graphics.Path();
-        private final int height;
-
-        CopyIcon(int height, int color) {
-            this.height = height;
-
-            paint.setStyle(android.graphics.Paint.Style.STROKE);
-            paint.setStrokeWidth(2f);
-            paint.setStrokeJoin(android.graphics.Paint.Join.MITER);
-            paint.setStrokeMiter(10f);
-            paint.setColor(color);
-
-            // Задняя страница
-            back.moveTo(17.5f, 21.1664f);
-            back.lineTo(17.5f, 22.9815f);
-            back.cubicTo(17.5f, 24.1916f, 16.5f, 25.2f, 15.3f, 25.2f);
-            back.lineTo(3.9f, 25.2f);
-            back.cubicTo(2.7f, 25.2f, 1.7f, 24.1916f, 1.7f, 22.9815f);
-            back.lineTo(1.7f, 7.14959f);
-            back.cubicTo(1.7f, 5.93951f, 2.7f, 4.93109f, 3.9f, 4.93109f);
-
-            // Передняя страница
-            front.moveTo(18.2f, 21.4689f);
-            front.lineTo(6.8f, 21.4689f);
-            front.cubicTo(5.6f, 21.4689f, 4.6f, 20.4605f, 4.6f, 19.2504f);
-            front.lineTo(4.6f, 3.41848f);
-            front.cubicTo(4.6f, 2.2084f, 5.6f, 1.20001f, 6.8f, 1.20001f);
-            front.lineTo(18.2f, 1.20001f);
-            front.cubicTo(19.4f, 1.20001f, 20.4f, 2.2084f, 20.4f, 3.41848f);
-            front.lineTo(20.4f, 19.1496f);
-            front.cubicTo(20.4f, 20.4605f, 19.4f, 21.4689f, 18.2f, 21.4689f);
-            front.close();
-        }
-
-        @Override
-        public void draw(android.graphics.Canvas canvas) {
-            android.graphics.Rect b = getBounds();
-            float s = Math.min(b.width() / W, b.height() / H);
-            canvas.save();
-            canvas.translate(b.left + (b.width() - W * s) / 2f, b.top + (b.height() - H * s) / 2f);
-            canvas.scale(s, s);
-            canvas.drawPath(back, paint);
-            canvas.drawPath(front, paint);
-            canvas.restore();
-        }
-
-        @Override
-        public int getIntrinsicWidth() { return Math.round(height * W / H); }
-
-        @Override
-        public int getIntrinsicHeight() { return height; }
-
-        @Override
-        public void setAlpha(int alpha) { paint.setAlpha(alpha); }
-
-        @Override
-        public void setColorFilter(android.graphics.ColorFilter cf) { paint.setColorFilter(cf); }
-
-        @Override
-        public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
-    }
-
-    // Иконка «карандаш» (SVG 297.068x297.068, заливка), нарисована кодом.
-    // Относительные команды SVG (l, c, s) пересчитаны в абсолютные координаты.
-    private static class PencilIcon extends android.graphics.drawable.Drawable {
-        private static final float VIEW = 297.068f;
-
-        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private final android.graphics.Path path = new android.graphics.Path();
+        private final android.graphics.Path path;
         private final int size;
 
-        PencilIcon(int size, int color) {
+        SvgIcon(int size, int color, String d) {
             this.size = size;
-
             paint.setStyle(android.graphics.Paint.Style.FILL);
             paint.setColor(color);
+            this.path = parsePath(d);
+        }
 
-            // Внешний контур
-            path.moveTo(288.758f, 46.999f);
-            path.lineTo(250.068f, 8.309f);
-            path.cubicTo(244.721f, 2.955f, 237.613f, 0.006f, 230.048f, 0.006f);
-            path.cubicTo(222.483f, 0.006f, 215.376f, 2.949f, 210.028f, 8.303f);
-            path.lineTo(28.632f, 190.266f);
-            path.lineTo(0f, 297.061f);
-            path.lineTo(107.547f, 268.256f);
-            path.lineTo(288.745f, 87.045f);
-            path.cubicTo(294.105f, 81.691f, 297.068f, 74.583f, 297.068f, 67.019f);
-            path.cubicTo(297.068f, 59.455f, 294.105f, 52.347f, 288.758f, 46.999f);
-            path.close();
+        private static boolean isSep(char c) {
+            return c == ' ' || c == ',' || c == '\n' || c == '\t' || c == '\r';
+        }
 
-            // Корпус карандаша
-            path.moveTo(43.478f, 193.583f);
-            path.lineTo(180.71f, 55.823f);
-            path.lineTo(241.264f, 116.364f);
-            path.lineTo(103.761f, 253.866f);
-            path.lineTo(43.478f, 193.583f);
-            path.close();
+        // Читает число начиная с позиции pos[0]: "-.5", "28.5", "22.5-19.5" (второй знак или вторая точка начинают новое число)
+        private static float readNum(String s, int[] pos) {
+            int i = pos[0];
+            while (i < s.length() && isSep(s.charAt(i))) i++;
+            int st = i;
+            if (i < s.length() && (s.charAt(i) == '-' || s.charAt(i) == '+')) i++;
+            boolean dot = false;
+            while (i < s.length()) {
+                char c = s.charAt(i);
+                if (c >= '0' && c <= '9') {
+                    i++;
+                } else if (c == '.' && !dot) {
+                    dot = true;
+                    i++;
+                } else {
+                    break;
+                }
+            }
+            pos[0] = i;
+            return Float.parseFloat(s.substring(st, i));
+        }
 
-            // Кончик
-            path.moveTo(37.719f, 206.006f);
-            path.lineTo(91.087f, 259.368f);
-            path.lineTo(48.683f, 270.718f);
-            path.lineTo(26.35f, 248.384f);
-            path.lineTo(37.719f, 206.006f);
-            path.close();
+        static android.graphics.Path parsePath(String s) {
+            android.graphics.Path p = new android.graphics.Path();
+            int[] pos = {0};
+            int n = s.length();
+            char cmd = 0;
+            float cx = 0, cy = 0;       // текущая точка
+            float sx = 0, sy = 0;       // начало подконтура
+            float qx = 0, qy = 0;       // последняя контрольная точка квадратичной кривой
+            float bx = 0, by = 0;       // последняя контрольная точка кубической кривой
+            boolean hadQ = false;
+            boolean hadC = false;
 
-            // Ластик
-            path.moveTo(279.657f, 77.951f);
-            path.lineTo(260.164f, 97.456f);
-            path.lineTo(199.585f, 36.915f);
-            path.lineTo(219.129f, 17.39f);
-            path.cubicTo(224.952f, 11.542f, 235.145f, 11.548f, 240.98f, 17.39f);
-            path.lineTo(279.67f, 56.086f);
-            path.cubicTo(282.594f, 59.004f, 284.214f, 62.886f, 284.214f, 67.012f);
-            path.cubicTo(284.214f, 71.139f, 282.594f, 75.027f, 279.657f, 77.951f);
-            path.close();
+            while (true) {
+                while (pos[0] < n && isSep(s.charAt(pos[0]))) pos[0]++;
+                if (pos[0] >= n) break;
+                char c = s.charAt(pos[0]);
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+                    cmd = c;
+                    pos[0]++;
+                    if (cmd == 'Z' || cmd == 'z') {
+                        p.close();
+                        cx = sx;
+                        cy = sy;
+                        hadQ = false;
+                        hadC = false;
+                        continue;
+                    }
+                } else if (cmd == 'M') {
+                    cmd = 'L';
+                } else if (cmd == 'm') {
+                    cmd = 'l';
+                }
+
+                boolean rel = cmd >= 'a' && cmd <= 'z';
+                char up = Character.toUpperCase(cmd);
+                float ox = rel ? cx : 0;
+                float oy = rel ? cy : 0;
+                boolean nowQ = false;
+                boolean nowC = false;
+
+                if (up == 'M') {
+                    float x = ox + readNum(s, pos);
+                    float y = oy + readNum(s, pos);
+                    p.moveTo(x, y);
+                    cx = x; cy = y; sx = x; sy = y;
+                } else if (up == 'L') {
+                    float x = ox + readNum(s, pos);
+                    float y = oy + readNum(s, pos);
+                    p.lineTo(x, y);
+                    cx = x; cy = y;
+                } else if (up == 'H') {
+                    float x = ox + readNum(s, pos);
+                    p.lineTo(x, cy);
+                    cx = x;
+                } else if (up == 'V') {
+                    float y = oy + readNum(s, pos);
+                    p.lineTo(cx, y);
+                    cy = y;
+                } else if (up == 'C') {
+                    float x1 = ox + readNum(s, pos);
+                    float y1 = oy + readNum(s, pos);
+                    float x2 = ox + readNum(s, pos);
+                    float y2 = oy + readNum(s, pos);
+                    float x = ox + readNum(s, pos);
+                    float y = oy + readNum(s, pos);
+                    p.cubicTo(x1, y1, x2, y2, x, y);
+                    bx = x2; by = y2; nowC = true;
+                    cx = x; cy = y;
+                } else if (up == 'S') {
+                    float x1 = hadC ? 2 * cx - bx : cx;
+                    float y1 = hadC ? 2 * cy - by : cy;
+                    float x2 = ox + readNum(s, pos);
+                    float y2 = oy + readNum(s, pos);
+                    float x = ox + readNum(s, pos);
+                    float y = oy + readNum(s, pos);
+                    p.cubicTo(x1, y1, x2, y2, x, y);
+                    bx = x2; by = y2; nowC = true;
+                    cx = x; cy = y;
+                } else if (up == 'Q') {
+                    float x1 = ox + readNum(s, pos);
+                    float y1 = oy + readNum(s, pos);
+                    float x = ox + readNum(s, pos);
+                    float y = oy + readNum(s, pos);
+                    p.quadTo(x1, y1, x, y);
+                    qx = x1; qy = y1; nowQ = true;
+                    cx = x; cy = y;
+                } else if (up == 'T') {
+                    float x1 = hadQ ? 2 * cx - qx : cx;
+                    float y1 = hadQ ? 2 * cy - qy : cy;
+                    float x = ox + readNum(s, pos);
+                    float y = oy + readNum(s, pos);
+                    p.quadTo(x1, y1, x, y);
+                    qx = x1; qy = y1; nowQ = true;
+                    cx = x; cy = y;
+                } else {
+                    break; // неподдерживаемая команда
+                }
+                hadQ = nowQ;
+                hadC = nowC;
+            }
+            return p;
         }
 
         @Override
@@ -1359,6 +1320,7 @@ public class ChatAdapter extends BaseAdapter {
             canvas.save();
             canvas.translate(b.left + (b.width() - VIEW * s) / 2f, b.top + (b.height() - VIEW * s) / 2f);
             canvas.scale(s, s);
+            canvas.translate(0f, VIEW); // viewBox начинается с y = -960
             canvas.drawPath(path, paint);
             canvas.restore();
         }

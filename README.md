@@ -21,11 +21,11 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **System prompt** - set a custom system instruction that applies to every message
 - **Bilingual UI** - Russian and English, chosen on first launch
 - **No dependencies** - no Retrofit, no OkHttp, no Gson, no AndroidX; pure `HttpURLConnection` and `org.json`
-- **TLS 1.2 support** - a custom `SSLSocketFactory` turns on the built-in TLS 1.2 on Android 4.1-4.4 (API 16-19); on older versions (Android 1.5-4.0.4) the system has no TLS 1.2 and Wolfius is required (see the Compatibility table at the bottom); on Android 1.5-1.6 the app shows a one-time hint about it
+- **TLS 1.2 support** - a custom `SSLSocketFactory` turns on the built-in TLS 1.2 on Android 4.1-4.4 (API 16-19); Android 2.3-4.0.4 (API 9-15) works without any add-ons; on Android 1.5-2.2 (API 3-8) Wolfius is required (see the Compatibility table at the bottom); on Android 1.5-1.6 the app shows a one-time hint about it
 
 ## Requirements
 
-- Android 1.5 (API 3) or higher (on Android 1.5-4.0.4 a TLS add-on such as Wolfius is required to reach the Gemini API, see Usage and the Compatibility table at the bottom)
+- Android 1.5 (API 3) or higher (on Android 1.5-2.2 a TLS add-on such as Wolfius is required to reach the Gemini API; from Android 2.3 it works without it, see Usage and the Compatibility table at the bottom)
 - A Google Gemini API key (free tier available)
 
 ## Getting Started
@@ -102,7 +102,7 @@ On first launch the app asks you to choose a language, then walks you through en
 
 **New chat** - the New chat button in the menu starts an empty chat. The previous chat stays saved. Starting a new chat or opening another one is unavailable while a response is being generated.
 
-**Android 1.5-4.0.4 and Wolfius** - these versions have no TLS 1.2 in the system, so Gemini cannot be reached without help. Install and enable [Wolfius](https://github.com/gohoski/Wolfius), which adds TLS 1.3 for Android 1.5-4.4 (root is recommended). On Android 1.5-1.6 the app shows a one-time hint about it on the first launch. Android 1.0 and 1.1 (API 1-2) are not supported.
+**Android 1.5-2.2 and Wolfius** - these versions cannot reach Gemini without help. Install and enable [Wolfius](https://github.com/gohoski/Wolfius), which adds TLS 1.3 for Android 1.5-4.4 (root is recommended). Android 2.3 and newer work without Wolfius. On Android 1.5-1.6 the app shows a one-time hint about it on the first launch. Android 1.0 and 1.1 (API 1-2) are not supported.
 
 ## Project Structure
 
@@ -127,7 +127,7 @@ app/src/main/java/com/geminiapp/chat/
 
 The project uses no external libraries. All HTTP communication is done with `HttpURLConnection`, JSON is parsed with `org.json`, and the UI is built entirely in code (no XML layouts used in the main activity). This keeps the APK small and the dependency tree empty.
 
-TLS 1.2 is supported but not enabled by default on Android 4.1-4.4 (API 16-19). `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on those devices. Before Android 4.1 the system has no TLS 1.2 at all, so Wolfius is required there; on Android 1.5-1.6 the app shows a one-time hint about it.
+TLS 1.2 is supported but not enabled by default on Android 4.1-4.4 (API 16-19). `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on those devices. On Android 2.3-4.0.4 the app works without add-ons (confirmed on a device with Android 2.3); on Android 1.5-2.2 Wolfius is required; on Android 1.5-1.6 the app shows a one-time hint about it.
 
 The request runs in a background thread and reports its result through `PendingState`. If the screen is rotated or the activity is recreated while the answer is being generated, the new `MainActivity` picks up the partial text or the final result from `PendingState` and continues from there.
 
@@ -178,7 +178,7 @@ What works on which Android version. The table is based on the app code and the 
 
 Legend: ✅ works out of the box, 🔧 works only with [Wolfius](https://github.com/gohoski/Wolfius) installed and enabled.
 
-| Section | Android 1.5-1.6 (API 3-4) | Android 2.0-4.0.4 (API 5-15) | Android 4.1-4.4.4 (API 16-19) | Android 5.0+ (API 20+) |
+| Section | Android 1.5-2.2 (API 3-8) | Android 2.3-4.0.4 (API 9-15) | Android 4.1-4.4.4 (API 16-19) | Android 5.0+ (API 20+) |
 |---|---|---|---|---|
 | App install and launch | ✅ | ✅ | ✅ | ✅ |
 | First-launch setup (language, API key) | ✅ | ✅ | ✅ | ✅ |
@@ -189,14 +189,15 @@ Legend: ✅ works out of the box, 🔧 works only with [Wolfius](https://github.
 | Copy and edit answers and your own messages | ✅ | ✅ | ✅ | ✅ |
 | Waiting animation, smooth text, icons | ✅ | ✅ | ✅ | ✅ |
 | Attaching a photo from the gallery | ✅ | ✅ | ✅ | ✅ |
-| Text chat with Gemini (streaming, model list, Google Search) | 🔧 | 🔧 | ✅ | ✅ |
-| Image generation (`/image`, paid plan needed) | 🔧 | 🔧 | ✅ | ✅ |
-| Images inside answers (Markdown `![](https://...)`) | 🔧 | 🔧 | ✅ | ✅ |
-| Wolfius hint on first launch | shown | not shown | not needed | not needed |
+| Text chat with Gemini (streaming, model list, Google Search) | 🔧 | ✅ | ✅ | ✅ |
+| Image generation (`/image`, paid plan needed) | 🔧 | ✅ | ✅ | ✅ |
+| Images inside answers (Markdown `![](https://...)`) | 🔧 | ✅ | ✅ | ✅ |
+| Wolfius hint on first launch | shown on 1.5-1.6 | not needed | not needed | not needed |
 
 Notes:
 
 - Everything that does not touch the network (launch, UI, history, settings, Markdown, copy/edit) is drawn and stored by the app itself, so it works the same on all supported versions, even offline.
+- Android 2.3 and newer reach Gemini without Wolfius (confirmed on Android 2.3). For Android 1.5-2.2 the need for Wolfius is an assumption and was not tested on a device.
 - Wolfius supports Android 1.5-4.4 only. On Android 1.0 and 1.1 the app is not supported at all.
 - On Android 1.5 (API 3) the icons under answers have no accessibility labels, because the system supports them only from API 4. The icons themselves work.
 

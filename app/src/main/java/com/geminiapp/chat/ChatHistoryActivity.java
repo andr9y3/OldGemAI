@@ -108,7 +108,7 @@ public class ChatHistoryActivity extends Activity {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
 
         btnSearch = new ImageButton(this);
-        btnSearch.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_search, dp(24), 0xFFE3E3E3));
+        btnSearch.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_search, dp(24), 0xFF000000));
         try {
             btnSearch.setContentDescription(isRu ? "Поиск" : "Search");
         } catch (Throwable ignored) {}

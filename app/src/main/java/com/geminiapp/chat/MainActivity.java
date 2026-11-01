@@ -232,7 +232,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 invalidate();
             }
         };
-        btnSend.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_send, dp(24), 0xFFE3E3E3));
+        btnSend.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_send, dp(24), 0xFF000000));
         inputLayout.addView(btnSend, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 

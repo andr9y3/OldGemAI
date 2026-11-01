@@ -1,2 +1,5 @@
 # Disable automatic line ending conversion for all file types
 * -text
+
+# Windows batch files need CRLF line endings to run correctly
+*.bat text eol=crlf

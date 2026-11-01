@@ -1077,21 +1077,8 @@ public class ChatAdapter extends BaseAdapter {
     // Цвет иконок под ответом: окно приложения чёрное (Theme.Black), поэтому иконки белые
     private static final int ICON_COLOR = 0xFFFFFFFF;
 
-    // Иконки Google Material Symbols (Rounded, fill), viewBox "0 -960 960 960", лицензия Apache 2.0
-    private static final String PATH_REFRESH =
-        "M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-70q0-17 11.5-28.5T760-800"
-        + "q17 0 28.5 11.5T800-760v200q0 17-11.5 28.5T760-520H560q-17 0-28.5-11.5T520-560q0-17 11.5-28.5T560-600"
-        + "h128q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q68 0 124.5-34.5T692-367"
-        + "q8-14 22.5-19.5t29.5-.5q16 5 23 21t-1 30q-41 80-117 128t-169 48Z";
-    private static final String PATH_COPY =
-        "M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480"
-        + "q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-520"
-        + "q0-17 11.5-28.5T160-720q17 0 28.5 11.5T200-680v520h400q17 0 28.5 11.5T640-120q0 17-11.5 28.5T600-80H200Z"
-        + "m160-240v-480 480Z";
-    private static final String PATH_EDIT =
-        "M200-200h57l391-391-57-57-391 391v57Zm-40 80q-17 0-28.5-11.5T120-160v-97q0-16 6-30.5t17-25.5l505-504"
-        + "q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L313-143"
-        + "q-11 11-25.5 17t-30.5 6h-97Zm600-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z";
+    // Иконки Google Material Symbols (Rounded, fill), лицензия Apache 2.0.
+    // Лежат отдельными SVG-файлами в res/raw: ic_refresh.svg, ic_copy.svg, ic_edit.svg
 
     // Ряд кнопок под ответом модели: перегенерация (только под последним ответом),
     // копирование и изменение текста ответа. text == null - у сообщения нет текста
@@ -1112,7 +1099,7 @@ public class ChatAdapter extends BaseAdapter {
         row.setOrientation(LinearLayout.HORIZONTAL);
 
         if (showRegen) {
-            row.addView(makeActionButton(new SvgIcon(dp(24), ICON_COLOR, PATH_REFRESH),
+            row.addView(makeActionButton(SvgIcon.fromRaw(context, R.raw.ic_refresh, dp(24), ICON_COLOR),
                     ru ? "Перегенерировать ответ" : "Regenerate response",
                     new View.OnClickListener() {
                         @Override
@@ -1123,7 +1110,7 @@ public class ChatAdapter extends BaseAdapter {
                     }));
         }
         if (showCopy) {
-            row.addView(makeActionButton(new SvgIcon(dp(24), ICON_COLOR, PATH_COPY),
+            row.addView(makeActionButton(SvgIcon.fromRaw(context, R.raw.ic_copy, dp(24), ICON_COLOR),
                     ru ? "Копировать ответ" : "Copy response",
                     new View.OnClickListener() {
                         @Override
@@ -1133,7 +1120,7 @@ public class ChatAdapter extends BaseAdapter {
                     }));
         }
         if (showEdit) {
-            row.addView(makeActionButton(new SvgIcon(dp(24), ICON_COLOR, PATH_EDIT),
+            row.addView(makeActionButton(SvgIcon.fromRaw(context, R.raw.ic_edit, dp(24), ICON_COLOR),
                     ru ? "Изменить ответ" : "Edit response",
                     new View.OnClickListener() {
                         @Override
@@ -1170,18 +1157,91 @@ public class ChatAdapter extends BaseAdapter {
 
     // Иконка из SVG-пути (viewBox "0 -960 960 960"), нарисована кодом: VectorDrawable на старых Android недоступен.
     // Разбирает команды M L H V C S Q T Z (заглавные и строчные); дуги Material-иконки здесь не используют.
-    private static class SvgIcon extends android.graphics.drawable.Drawable {
-        private static final float VIEW = 960f;
-
+    static class SvgIcon extends android.graphics.drawable.Drawable {
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.Path path;
         private final int size;
 
-        SvgIcon(int size, int color, String d) {
+        // Разобранные пути кэшируем по id ресурса: getView вызывается очень часто
+        // Путь иконки и её viewBox (x, y, ширина, высота): у разных SVG он разный,
+        // например "0 -960 960 960" у Material Symbols и "0 0 24 24" у иконки отправки
+        private static class Data {
+            android.graphics.Path path = new android.graphics.Path();
+            float x = 0f;
+            float y = 0f;
+            float w = 24f;
+            float h = 24f;
+        }
+
+        private static final java.util.HashMap<Integer, Data> CACHE =
+                new java.util.HashMap<Integer, Data>();
+
+        private final float vbX;
+        private final float vbY;
+        private final float vbW;
+        private final float vbH;
+
+        SvgIcon(int size, int color, Data data) {
             this.size = size;
             paint.setStyle(android.graphics.Paint.Style.FILL);
             paint.setColor(color);
-            this.path = parsePath(d);
+            this.path = data.path;
+            this.vbX = data.x;
+            this.vbY = data.y;
+            this.vbW = data.w;
+            this.vbH = data.h;
+        }
+
+        // Иконка из SVG-файла в res/raw (viewBox "0 -960 960 960")
+        static SvgIcon fromRaw(Context ctx, int resId, int size, int color) {
+            Data d = CACHE.get(resId);
+            if (d == null) {
+                d = loadRaw(ctx, resId);
+                CACHE.put(resId, d);
+            }
+            return new SvgIcon(size, color, d);
+        }
+
+        // Читает SVG и собирает все атрибуты d="..." из тегов <path> в один Path
+        private static Data loadRaw(Context ctx, int resId) {
+            Data result = new Data();
+            try {
+                InputStream is = ctx.getResources().openRawResource(resId);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buf = new byte[1024];
+                int n;
+                while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+                is.close();
+                String svg = new String(baos.toByteArray(), "UTF-8");
+                int from = 0;
+                while (true) {
+                    int a = svg.indexOf(" d=\"", from);
+                    if (a < 0) break;
+                    int st = a + 4;
+                    int end = svg.indexOf('"', st);
+                    if (end < 0) break;
+                    result.path.addPath(parsePath(svg.substring(st, end)));
+                    from = end + 1;
+                }
+                // viewBox="x y ширина высота"
+                int vb = svg.indexOf("viewBox=\"");
+                if (vb >= 0) {
+                    int[] pos = {vb + 9};
+                    float vx = readNum(svg, pos);
+                    float vy = readNum(svg, pos);
+                    float vw = readNum(svg, pos);
+                    float vh = readNum(svg, pos);
+                    if (vw > 0 && vh > 0) {
+                        result.x = vx;
+                        result.y = vy;
+                        result.w = vw;
+                        result.h = vh;
+                    }
+                }
+            } catch (Throwable t) {
+                AppLog.e("UI", "Icon load failed", t);
+            }
+            return result;
         }
 
         private static boolean isSep(char c) {
@@ -1316,11 +1376,11 @@ public class ChatAdapter extends BaseAdapter {
         @Override
         public void draw(android.graphics.Canvas canvas) {
             android.graphics.Rect b = getBounds();
-            float s = Math.min(b.width(), b.height()) / VIEW;
+            float s = Math.min(b.width() / vbW, b.height() / vbH);
             canvas.save();
-            canvas.translate(b.left + (b.width() - VIEW * s) / 2f, b.top + (b.height() - VIEW * s) / 2f);
+            canvas.translate(b.left + (b.width() - vbW * s) / 2f, b.top + (b.height() - vbH * s) / 2f);
             canvas.scale(s, s);
-            canvas.translate(0f, VIEW); // viewBox начинается с y = -960
+            canvas.translate(-vbX, -vbY); // начало viewBox переносим в (0, 0)
             canvas.drawPath(path, paint);
             canvas.restore();
         }

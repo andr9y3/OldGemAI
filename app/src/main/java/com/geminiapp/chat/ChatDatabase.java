@@ -196,6 +196,43 @@ public class ChatDatabase extends SQLiteOpenHelper {
         return chats;
     }
 
+    /**
+     * Тексты всех сообщений по чатам: id чата -> тексты сообщений по порядку через перевод строки.
+     * Нужен для поиска по содержимому. Картинки (base64) не читаются, только текст.
+     */
+    public java.util.Map<Long, String> getAllChatTexts() {
+        SQLiteDatabase db = getReadableDatabase();
+        java.util.HashMap<Long, StringBuilder> tmp = new java.util.HashMap<Long, StringBuilder>();
+
+        Cursor c = db.rawQuery("SELECT " + COL_MSG_CHAT_ID + ", " + COL_MSG_TEXT
+                + " FROM " + TABLE_MESSAGES
+                + " WHERE " + COL_MSG_TEXT + " IS NOT NULL AND " + COL_MSG_TEXT + " != ''"
+                + " ORDER BY " + COL_MSG_ID + " ASC", null);
+        try {
+            while (c.moveToNext()) {
+                Long id = Long.valueOf(c.getLong(0));
+                String text = c.getString(1);
+                if (text == null) continue;
+                StringBuilder sb = tmp.get(id);
+                if (sb == null) {
+                    sb = new StringBuilder();
+                    tmp.put(id, sb);
+                } else {
+                    sb.append('\n');
+                }
+                sb.append(text);
+            }
+        } finally {
+            c.close();
+        }
+
+        java.util.HashMap<Long, String> result = new java.util.HashMap<Long, String>();
+        for (java.util.Map.Entry<Long, StringBuilder> e : tmp.entrySet()) {
+            result.put(e.getKey(), e.getValue().toString());
+        }
+        return result;
+    }
+
     public List<GeminiApi.Message> getChatMessages(long chatId) {
         SQLiteDatabase db = getReadableDatabase();
         List<GeminiApi.Message> messages = new ArrayList<GeminiApi.Message>();

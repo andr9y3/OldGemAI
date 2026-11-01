@@ -5,18 +5,27 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.LinearLayout;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class ChatHistoryActivity extends Activity {
 
@@ -24,7 +33,14 @@ public class ChatHistoryActivity extends Activity {
     private Prefs prefs;
     private ListView lvChats;
     private TextView tvEmpty;
+    private EditText etSearch;
+    private ImageButton btnSearch;
+    // Все сохранённые чаты
+    private List<ChatDatabase.ChatInfo> allChats = new ArrayList<ChatDatabase.ChatInfo>();
+    // Показанные сейчас в списке (все или результат поиска): позиции в списке считаются по ним
     private List<ChatDatabase.ChatInfo> chatList;
+    // Тексты сообщений по чатам для поиска по содержимому; собираются при первом поиске
+    private Map<Long, String> chatTexts;
     private ArrayAdapter<String> adapter;
     private boolean isRu;
 
@@ -78,6 +94,28 @@ public class ChatHistoryActivity extends Activity {
             }
         });
 
+        // Строка поиска: поле ввода и кнопка-лупа. Список фильтруется по мере ввода.
+        LinearLayout searchRow = new LinearLayout(this);
+        searchRow.setOrientation(LinearLayout.HORIZONTAL);
+        searchRow.setGravity(Gravity.CENTER_VERTICAL);
+        searchRow.setPadding(dp(6), 0, dp(6), 0);
+
+        etSearch = new EditText(this);
+        etSearch.setHint(isRu ? "Поиск по чатам..." : "Search chats...");
+        etSearch.setSingleLine(true);
+        etSearch.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        searchRow.addView(etSearch, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        btnSearch = new ImageButton(this);
+        btnSearch.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_search, dp(24), 0xFFE3E3E3));
+        try {
+            btnSearch.setContentDescription(isRu ? "Поиск" : "Search");
+        } catch (Throwable ignored) {}
+        searchRow.addView(btnSearch, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        mainLayout.addView(searchRow);
+
         tvEmpty = new TextView(this);
         tvEmpty.setText(isRu ? "Нет сохранённых чатов" : "No saved chats");
         tvEmpty.setPadding(20, 20, 20, 20);
@@ -91,8 +129,44 @@ public class ChatHistoryActivity extends Activity {
 
         setContentView(mainLayout);
         setTitle(isRu ? "История чатов" : "Chat history");
+        // Клавиатура не должна всплывать сама при открытии экрана
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
 
         loadChats();
+
+        etSearch.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                applyFilter();
+            }
+        });
+        etSearch.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, android.view.KeyEvent event) {
+                hideKeyboard();
+                return true;
+            }
+        });
+        // Лупа: при пустом поле ставит курсор в поиск и показывает клавиатуру, иначе убирает клавиатуру
+        btnSearch.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (etSearch.getText().toString().trim().length() == 0) {
+                    etSearch.requestFocus();
+                    showKeyboard();
+                } else {
+                    hideKeyboard();
+                }
+            }
+        });
 
         lvChats.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -117,21 +191,96 @@ public class ChatHistoryActivity extends Activity {
     }
 
     private void loadChats() {
-        chatList = chatDb.getAllChats();
+        allChats = chatDb.getAllChats();
+        // Чаты могли измениться: индекс содержимого пересоберётся при следующем поиске
+        chatTexts = null;
+        applyFilter();
+    }
+
+    /**
+     * Заполняет список по тексту в поле поиска. Пустое поле - все чаты. Иначе сначала идут чаты,
+     * в названии которых есть запрос, потом чаты, где запрос есть только в сообщениях
+     * (у них под названием показывается фрагмент текста). Регистр не важен.
+     */
+    private void applyFilter() {
+        String q = etSearch != null ? etSearch.getText().toString().trim() : "";
+        chatList = new ArrayList<ChatDatabase.ChatInfo>();
         List<String> titles = new ArrayList<String>();
 
-        for (ChatDatabase.ChatInfo chat : chatList) {
-            String preview = chat.title.length() > 40
-                ? chat.title.substring(0, 40) + "..."
-                : chat.title;
-            String item = preview + "\n" + chat.getFormattedDate();
-            titles.add(item);
+        if (q.length() == 0) {
+            for (ChatDatabase.ChatInfo chat : allChats) {
+                chatList.add(chat);
+                titles.add(titlePreview(chat) + "\n" + chat.getFormattedDate());
+            }
+        } else {
+            // 1. По названию
+            for (ChatDatabase.ChatInfo chat : allChats) {
+                if (indexOfIgnoreCase(chat.title, q) >= 0) {
+                    chatList.add(chat);
+                    titles.add(titlePreview(chat) + "\n" + chat.getFormattedDate());
+                }
+            }
+            // 2. По содержимому (только чаты, не найденные по названию)
+            if (chatTexts == null) chatTexts = chatDb.getAllChatTexts();
+            for (ChatDatabase.ChatInfo chat : allChats) {
+                if (indexOfIgnoreCase(chat.title, q) >= 0) continue;
+                String text = chatTexts.get(Long.valueOf(chat.id));
+                int idx = indexOfIgnoreCase(text, q);
+                if (idx >= 0) {
+                    chatList.add(chat);
+                    titles.add(titlePreview(chat) + "\n" + makeSnippet(text, idx, q.length())
+                            + "\n" + chat.getFormattedDate());
+                }
+            }
         }
 
         adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, titles);
         lvChats.setAdapter(adapter);
 
+        if (allChats.isEmpty()) {
+            tvEmpty.setText(isRu ? "Нет сохранённых чатов" : "No saved chats");
+        } else {
+            tvEmpty.setText(isRu ? "Ничего не найдено" : "Nothing found");
+        }
         tvEmpty.setVisibility(chatList.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    private String titlePreview(ChatDatabase.ChatInfo chat) {
+        String title = chat.title != null ? chat.title : "";
+        return title.length() > 40 ? title.substring(0, 40) + "..." : title;
+    }
+
+    // Поиск подстроки без учёта регистра (в том числе для кириллицы: LIKE в SQLite с ней не справляется)
+    private static int indexOfIgnoreCase(String hay, String needle) {
+        if (hay == null || needle == null) return -1;
+        int n = needle.length();
+        int max = hay.length() - n;
+        for (int i = 0; i <= max; i++) {
+            if (hay.regionMatches(true, i, needle, 0, n)) return i;
+        }
+        return -1;
+    }
+
+    // Фрагмент текста вокруг найденного места, одной строкой
+    private static String makeSnippet(String text, int idx, int len) {
+        int start = Math.max(0, idx - 25);
+        int end = Math.min(text.length(), idx + len + 45);
+        String s = text.substring(start, end).replace('\n', ' ').replace('\r', ' ').trim();
+        return (start > 0 ? "..." : "") + s + (end < text.length() ? "..." : "");
+    }
+
+    private void showKeyboard() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(etSearch, 0);
+        } catch (Throwable ignored) {}
+    }
+
+    private void hideKeyboard() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(etSearch.getWindowToken(), 0);
+        } catch (Throwable ignored) {}
     }
 
     private void openChat(int position) {
@@ -234,7 +383,8 @@ public class ChatHistoryActivity extends Activity {
                     .setPositiveButton(isRu ? "Удалить" : "Delete", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface dialog, int which) {
-                            for (ChatDatabase.ChatInfo chat : chatList) {
+                            // Удаляем все чаты, а не только найденные поиском
+                            for (ChatDatabase.ChatInfo chat : allChats) {
                                 chatDb.deleteChat(chat.id);
                             }
                             loadChats();
@@ -245,5 +395,10 @@ public class ChatHistoryActivity extends Activity {
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    private int dp(int val) {
+        float density = getResources().getDisplayMetrics().density;
+        return (int) (val * density);
     }
 }

@@ -48,7 +48,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     private ListView lvChat;
     private EditText etMessage;
-    private Button btnSend;
+    private android.widget.ImageButton btnSend;
     private Button btnAttach;
     private LinearLayout topBar;
     private android.widget.ImageButton btnMenu;
@@ -221,7 +221,18 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
         inputLayout.addView(etMessage, editParams);
 
-        btnSend = new Button(this);
+        // Кнопка отправки: иконка-самолётик из res/raw/ic_send.svg
+        btnSend = new android.widget.ImageButton(this) {
+            @Override
+            public void setEnabled(boolean enabled) {
+                super.setEnabled(enabled);
+                // У ImageButton иконка при выключении сама не тускнеет, делаем это вручную
+                android.graphics.drawable.Drawable d = getDrawable();
+                if (d != null) d.setAlpha(enabled ? 255 : 90);
+                invalidate();
+            }
+        };
+        btnSend.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_send, dp(24), 0xFFE3E3E3));
         inputLayout.addView(btnSend, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -658,7 +669,9 @@ public class MainActivity extends Activity implements PendingState.Listener {
             ? "API ключ не задан - ИИ не будет работать. Добавьте ключ в настройках."
             : "No API key set - AI will not work. Add your key in Settings.");
 
-        btnSend.setText(isRu ? "Отправить" : "Send");
+        try {
+            btnSend.setContentDescription(isRu ? "Отправить" : "Send");
+        } catch (Throwable ignored) {}
         updateToolsLabel();
 
 

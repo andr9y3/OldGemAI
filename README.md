@@ -67,6 +67,19 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 	
 	APK in the releases are already signed.
 
+**Or do everything with one script.** In the project root there is `build.bat`. Run it (double-click or `build.bat` in a terminal) and it will:
+
+1. ask for the keystore password and the key password (input is hidden; press Enter on the second question if it is the same as the first),
+2. build the APK with the gradlew command above,
+3. copy `my.keystore` and `uber-apk-signer.jar` into `app\build\outputs\apk`,
+4. sign the APK.
+
+The signed file is `app\build\outputs\apk\app-debug-aligned-signed.apk`. The script expects `my.keystore` in the project root and uses the alias `mykey` (change `ALIAS` at the top of the script if yours is different). If you do not have a keystore yet, create it once with the same command as above:
+
+```
+keytool -genkeypair -v -keystore my.keystore -alias mykey -keyalg RSA -keysize 2048 -validity 10000
+```
+
 ### 3. First launch
 
 On first launch the app asks you to choose a language, then walks you through entering your API key. You can skip this step and add the key later in Settings.
@@ -209,3 +222,5 @@ The app was tested on real devices:
 
 If the app works on another Android version older than 5.0, write to Telegram [@ialwaysloveyou0](https://t.me/ialwaysloveyou0) with the Android version and the device model, and it will be added to this list.
 
+
+I'm only 13 years old and I used AI to make this. Go easy on me pls

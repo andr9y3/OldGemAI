@@ -1,6 +1,6 @@
 # OldGemAI
 
-A lightweight Android chat app for talking with Google Gemini AI. Built in pure Java with no third-party libraries - just the Android SDK and the Gemini API.
+A lightweight Android chat app for talking with Google Gemini AI. Built in pure Java, runs on Android 1.0 and newer. The only dependency is SpongyCastle (used for TLS 1.2 on old Android versions); everything else is the plain Android SDK and the Gemini API.
 
 ## Features
 
@@ -19,13 +19,14 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **Model selection** - loads the list of available Gemini models directly from the API so you always get the latest options
 - **Configurable temperature** - adjust creativity from 0.0 to 2.0 via a slider
 - **System prompt** - set a custom system instruction that applies to every message
+- **Auto-update** - once a day the app checks the latest release on GitHub; if it is newer than the installed version, a window shows the current and the new version with Install (downloads the APK with a progress bar and the downloaded size), Cancel and a "Don't ask again" checkbox that turns auto-update off. Works on every supported Android version (the check and the download go through the built-in TLS 1.2 client on old devices)
 - **Bilingual UI** - Russian and English, chosen on first launch
-- **No dependencies** - no Retrofit, no OkHttp, no Gson, no AndroidX; pure `HttpURLConnection` and `org.json`
-- **TLS 1.2 support** - a custom `SSLSocketFactory` turns on the built-in TLS 1.2 on Android 4.1-4.4 (API 16-19); Android 2.3-4.0.4 (API 9-15) works without any add-ons; on Android 1.5-2.2 (API 3-8) Wolfius is required (see the Compatibility table at the bottom); on Android 1.5-1.6 the app shows a one-time hint about it
+- **Minimal dependencies** - no Retrofit, no OkHttp, no Gson, no AndroidX; `HttpURLConnection` and `org.json`. The only library is SpongyCastle `core` (TLS 1.2 for Android 1.0-4.0)
+- **Built-in TLS 1.2, no Wolfius or root needed** - on Android 1.0-4.0 (API 1-15) the app uses its own TLS 1.2 client written in pure Java (SpongyCastle) with a bundled Google root certificate; on Android 4.1-4.4 it turns on the system TLS 1.2 (`Tls12SocketFactory`); on Android 4.4W+ it works out of the box
 
 ## Requirements
 
-- Android 1.5 (API 3) or higher (on Android 1.5-2.2 a TLS add-on such as Wolfius is required to reach the Gemini API; from Android 2.3 it works without it, see Usage and the Compatibility table at the bottom)
+- Android 1.0 (API 1) or higher; no add-ons, no root (see the Compatibility table at the bottom)
 - A Google Gemini API key (free tier available)
 
 ## Getting Started
@@ -82,7 +83,7 @@ keytool -genkeypair -v -keystore my.keystore -alias mykey -keyalg RSA -keysize 2
 
 ### 3. First launch
 
-On first launch the app asks you to choose a language, then walks you through entering your API key. You can skip this step and add the key later in Settings.
+On first launch the app asks you to choose a language, then shows a page about auto-update (with a checkbox to turn it off), then walks you through entering your API key. You can skip the key step and add the key later in Settings.
 
 ## Usage
 
@@ -102,6 +103,7 @@ On first launch the app asks you to choose a language, then walks you through en
 - Turn streaming (gradual typing of the answer) on or off
 - Turn smooth text appearance on or off (the streamed text is typed out smoothly instead of appearing in chunks; works only while streaming is on)
 - Turn the waiting animation (three animated dots shown before the answer starts) on or off
+- Turn auto-update on or off, or check for updates right now with the "Check for updates" button
 
 **Tools** - the + button next to the input field opens a bottom panel with the Photo button (pick a picture from the gallery), the Image button (generates an image from the text typed in the input field, same as `/image`) and the Search checkbox (Google Search). A star on the + button (+*) means that Search is on.
 
@@ -115,7 +117,7 @@ On first launch the app asks you to choose a language, then walks you through en
 
 **New chat** - the New chat button in the menu starts an empty chat. The previous chat stays saved. Starting a new chat or opening another one is unavailable while a response is being generated.
 
-**Android 1.5-2.2 and Wolfius** - these versions cannot reach Gemini without help. Install and enable [Wolfius](https://github.com/gohoski/Wolfius), which adds TLS 1.3 for Android 1.5-4.4 (root is recommended). Android 2.3 and newer work without Wolfius. On Android 1.5-1.6 the app shows a one-time hint about it on the first launch. Android 1.0 and 1.1 (API 1-2) are not supported.
+**Old Android (1.0-4.0)** - the app talks to Gemini through its own TLS 1.2 client, so nothing has to be installed. The first request can take a few seconds on slow phones (the TLS handshake is done in Java). Pictures from `![](https://...)` links inside answers are not downloaded on Android older than 4.1 (the link is shown instead).
 
 ## Project Structure
 
@@ -129,18 +131,24 @@ app/src/main/java/com/geminiapp/chat/
 ├── SettingsActivity.java      - settings screen
 ├── SetupApiKeyActivity.java   - first-launch API key setup
 ├── SetupLanguageActivity.java - first-launch language picker
+├── SetupUpdateActivity.java   - first-launch page about auto-update with a checkbox to turn it off
+├── Updater.java               - auto-update: daily check of the latest GitHub release, update window, APK download with progress, install
+├── UpdateFileProvider.java    - hands the downloaded APK to the system installer on Android 7+ (no androidx FileProvider)
 ├── Prefs.java                 - SharedPreferences wrapper
 ├── PendingState.java          - static state that keeps a running request, input text and attached image across activity recreation
 ├── Base64Compat.java          - Base64 encoder/decoder that works on any Android version (android.util.Base64 appeared only in API 8)
 ├── TypingDotsView.java        - animated three dots shown while the answer has not started yet (drawn by hand, works on any Android version)
-└── Tls12SocketFactory.java    - TLS 1.2 patch for old Android versions
+├── Tls12SocketFactory.java    - turns on system TLS 1.2 on Android 4.1-4.4
+├── Http.java                  - one entry point for HTTPS requests: HttpURLConnection on API 16+, own HTTP/1.1 over LegacyTls on API 1-15
+├── LegacyTls.java             - TLS 1.2 client in pure Java (SpongyCastle) with certificate chain and hostname checks
+└── Roots.java                 - bundled root certificate (GTS Root R1) used by LegacyTls
 ```
 
 ## Technical Notes
 
-The project uses no external libraries. All HTTP communication is done with `HttpURLConnection`, JSON is parsed with `org.json`, and the UI is built entirely in code (no XML layouts used in the main activity). This keeps the APK small and the dependency tree empty.
+The project uses one library, SpongyCastle `core`, only for TLS on old Android. HTTP communication on Android 4.1+ is done with `HttpURLConnection`, JSON is parsed with `org.json`, and the UI is built entirely in code (no XML layouts used in the main activity).
 
-TLS 1.2 is supported but not enabled by default on Android 4.1-4.4 (API 16-19). `Tls12SocketFactory` wraps the system `SSLSocketFactory` and forces TLS 1.2 negotiation so the app can reach the Gemini API on those devices. On Android 2.3-4.0.4 the app works without add-ons (confirmed on a device with Android 2.3); on Android 1.5-2.2 Wolfius is required; on Android 1.5-1.6 the app shows a one-time hint about it.
+TLS: Android 1.0-4.0 cannot do TLS 1.2 (and has no Google root certificates), so `Http` sends requests through `LegacyTls`: a TLS 1.2 client from the SpongyCastle lightweight API running over a plain `Socket`, with a small built-in HTTP/1.1 client (chunked responses and streaming included). It offers only RSA-based cipher suites (ECDHE-RSA and RSA with AES-GCM, RSA with AES-CBC-SHA256), checks the certificate chain up to the bundled GTS Root R1, the host name (SAN) and the validity dates (skipped if the device clock is before 2020), and requires CA flags on intermediate certificates. On Android 4.1-4.4 `Tls12SocketFactory` forces the system TLS 1.2 instead. If Google changes its root certificate, add the new one to `Roots.java`.
 
 The request runs in a background thread and reports its result through `PendingState`. If the screen is rotated or the activity is recreated while the answer is being generated, the new `MainActivity` picks up the partial text or the final result from `PendingState` and continues from there.
 
@@ -159,6 +167,14 @@ Google Search: when the Search checkbox in Tools is ticked, the request gets `"t
 The model list request uses `pageSize=1000` so that image models are not cut off by the default page size.
 
 The API key is sent in the `x-goog-api-key` request header, as Google's REST reference recommends, and never as a `?key=` URL parameter, so it does not end up in URLs, proxy logs or exception messages.
+
+### Auto-update
+
+`Updater` finds the latest version without the GitHub API: `https://github.com/andr9y3/OldGemAI/releases/latest` redirects to `.../releases/tag/<tag>`, and the tag is compared with the installed `versionName` number by number (`2.10` is newer than `2.9`; a leading `v` and a suffix like `-beta` are ignored). The check runs at launch no more than once per 24 hours, only if auto-update is on, and the time is saved only after a successful check. The APK is downloaded from `https://github.com/andr9y3/OldGemAI/releases/download/<tag>/app-debug-aligned-signed.apk`, so every release must contain a file with exactly this name, and its tag must be higher than the `versionName` of the build you want to update from.
+
+The state of the update window (versions, phase, downloaded bytes) is kept in static fields of `Updater`, not in an Activity. When the screen is rotated, the window is removed in `onDestroy` (`Updater.detach`) and put back in `onCreate` of the new Activity (`Updater.attach`) with the current progress, while the download thread keeps running. If the user closes the screen (back button), the download is cancelled.
+
+The file is saved in the app's private storage as `update.apk`. Before Android 7 the installer reads it directly (the file is world-readable); from Android 7 `UpdateFileProvider` serves it through a `content://` address. From Android 8 the user has to allow installs from this app once (the app opens the system screen for that). The update is signed with the same key as the installed app, otherwise Android refuses to install it over the old version.
 
 ## Privacy and Security
 
@@ -188,9 +204,9 @@ MIT
 
 What works on which Android version. The table is based on the app code and the official Android SSL documentation (TLS 1.2 is supported from API 16 and enabled by default from API 20); not every combination was tested on real devices.
 
-Legend: ✅ works out of the box, 🔧 works only with [Wolfius](https://github.com/gohoski/Wolfius) installed and enabled.
+Legend: ✅ works out of the box, 🟡 works through the built-in TLS 1.2 client (slower first request), ⚠️ code is written for it but not tested on a real device.
 
-| Section | Android 1.5-2.2 (API 3-8) | Android 2.3-4.0.4 (API 9-15) | Android 4.1-4.4.4 (API 16-19) | Android 5.0+ (API 20+) |
+| Section | Android 1.0-2.2 (API 1-8) | Android 2.3-4.0.4 (API 9-15) | Android 4.1-4.4.4 (API 16-19) | Android 5.0+ (API 20+) |
 |---|---|---|---|---|
 | App install and launch | ✅ | ✅ | ✅ | ✅ |
 | First-launch setup (language, API key) | ✅ | ✅ | ✅ | ✅ |
@@ -201,16 +217,16 @@ Legend: ✅ works out of the box, 🔧 works only with [Wolfius](https://github.
 | Copy and edit answers and your own messages | ✅ | ✅ | ✅ | ✅ |
 | Waiting animation, smooth text, icons | ✅ | ✅ | ✅ | ✅ |
 | Attaching a photo from the gallery | ✅ | ✅ | ✅ | ✅ |
-| Text chat with Gemini (streaming, model list, Google Search) | 🔧 | ✅ | ✅ | ✅ |
-| Image generation (`/image`, paid plan needed) | 🔧 | ✅ | ✅ | ✅ |
-| Images inside answers (Markdown `![](https://...)`) | 🔧 | ✅ | ✅ | ✅ |
-| Wolfius hint on first launch | shown on 1.5-1.6 | not needed | not needed | not needed |
+| Text chat with Gemini (streaming, model list, Google Search) | 🟡⚠️ | 🟡 | ✅ | ✅ |
+| Image generation (`/image`, paid plan needed) | 🟡⚠️ | 🟡 | ✅ | ✅ |
+| Images inside answers (Markdown `![](https://...)`) | link only | link only | ✅ | ✅ |
+| Wolfius hint on first launch | removed | removed | removed | removed |
 
 Notes:
 
 - Everything that does not touch the network (launch, UI, history, settings, Markdown, copy/edit) is drawn and stored by the app itself, so it works the same on all supported versions, even offline.
-- Android 2.3 and newer reach Gemini without Wolfius (confirmed on Android 2.3). For Android 1.5-2.2 the need for Wolfius is an assumption and was not tested on a device.
-- Wolfius supports Android 1.5-4.4 only. On Android 1.0 and 1.1 the app is not supported at all.
+- Android 2.3 and newer used to reach Gemini through the system TLS; since version 2.0 all versions below 4.1 use the built-in TLS 1.2 client, which has not been tested on a real device yet.
+- Android 1.0-1.5 devices have only one screen density, so the app icon there may be the default one.
 - On Android 1.5 (API 3) the icons under answers have no accessibility labels, because the system supports them only from API 4. The icons themselves work.
 
 ### Tested devices

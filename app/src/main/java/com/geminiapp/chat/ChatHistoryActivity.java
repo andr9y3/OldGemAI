@@ -103,7 +103,7 @@ public class ChatHistoryActivity extends Activity {
         etSearch = new EditText(this);
         etSearch.setHint(isRu ? "Поиск по чатам..." : "Search chats...");
         etSearch.setSingleLine(true);
-        etSearch.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        try { etSearch.setImeOptions(EditorInfo.IME_ACTION_SEARCH); } catch (Throwable ignored) {} // API 3+
         searchRow.addView(etSearch, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
 
@@ -130,7 +130,7 @@ public class ChatHistoryActivity extends Activity {
         setContentView(mainLayout);
         setTitle(isRu ? "История чатов" : "Chat history");
         // Клавиатура не должна всплывать сама при открытии экрана
-        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+        try { getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN); } catch (Throwable ignored) {} // API 3+
 
         loadChats();
 
@@ -148,6 +148,7 @@ public class ChatHistoryActivity extends Activity {
                 applyFilter();
             }
         });
+        try {
         etSearch.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, android.view.KeyEvent event) {
@@ -155,6 +156,7 @@ public class ChatHistoryActivity extends Activity {
                 return true;
             }
         });
+        } catch (Throwable ignored) {} // API 3+
         // Лупа: при пустом поле ставит курсор в поиск и показывает клавиатуру, иначе убирает клавиатуру
         btnSearch.setOnClickListener(new View.OnClickListener() {
             @Override

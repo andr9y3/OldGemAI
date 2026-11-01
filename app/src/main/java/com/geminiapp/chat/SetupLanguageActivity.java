@@ -64,8 +64,10 @@ public class SetupLanguageActivity extends Activity {
         });
     }
 
+    // Дальше по настройке: страница про автообновление (один раз), затем ввод API ключа
     private void goToApiKey() {
-        startActivity(new Intent(this, SetupApiKeyActivity.class));
+        Class<?> next = prefs.isUpdateSetupDone() ? SetupApiKeyActivity.class : SetupUpdateActivity.class;
+        startActivity(new Intent(this, next));
         finish();
     }
 

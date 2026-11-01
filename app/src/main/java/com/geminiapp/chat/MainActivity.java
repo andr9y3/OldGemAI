@@ -278,11 +278,16 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 return false;
             }
         });
-        showLegacyTlsHint();
+        // Wolfius больше не нужен: TLS 1.2 встроен (LegacyTls)
 
         updateBanner();
 
         restoreFromPendingState(savedInstanceState);
+
+        // Автообновление: после поворота экрана возвращает окно обновления с текущим прогрессом,
+        // проверка не чаще раза в сутки запускается только при новом запуске, а не при повороте
+        Updater.attach(this);
+        if (savedInstanceState == null) Updater.checkDaily(this);
 
         PendingState.listener = this;
 
@@ -425,6 +430,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        Updater.detach(this);
         mainHandler.removeCallbacks(revealTick);
         if (PendingState.listener == this) {
             PendingState.listener = null;

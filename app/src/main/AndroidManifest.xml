@@ -2,9 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.geminiapp.chat">
 
+    <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="31" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Автообновление: установка скачанного APK (нужно с Android 8) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".App"
@@ -22,10 +26,18 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".SetupUpdateActivity" />
         <activity android:name=".SetupApiKeyActivity" />
         <activity android:name=".MainActivity" />
         <activity android:name=".SettingsActivity" />
         <activity android:name=".ChatHistoryActivity" />
+
+        <!-- Отдаёт установщику скачанный APK обновления (Android 7+) -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="com.geminiapp.chat.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
     </application>
 

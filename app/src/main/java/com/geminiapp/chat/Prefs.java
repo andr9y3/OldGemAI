@@ -290,6 +290,33 @@ public class Prefs {
             .commit();
     }
 
+    // ---- Автообновление ----
+
+    public boolean isAutoUpdate() {
+        return prefs.getBoolean("auto_update", true);
+    }
+
+    public void setAutoUpdate(boolean on) {
+        prefs.edit().putBoolean("auto_update", on).commit();
+    }
+
+    public long getLastUpdateCheck() {
+        return prefs.getLong("last_update_check", 0);
+    }
+
+    public void setLastUpdateCheck(long time) {
+        prefs.edit().putLong("last_update_check", time).commit();
+    }
+
+    // true - страница про автообновление в первоначальной настройке уже показана
+    public boolean isUpdateSetupDone() {
+        return prefs.getBoolean("update_setup_done", false);
+    }
+
+    public void setUpdateSetupDone(boolean done) {
+        prefs.edit().putBoolean("update_setup_done", done).commit();
+    }
+
     public String getSystemPrompt() {
         return prefs.getString(KEY_SYSTEM_PROMPT, "");
     }

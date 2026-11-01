@@ -72,27 +72,14 @@ public class GeminiApi {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                HttpURLConnection connection = null;
+                Http.Response connection = null;
                 try {
                     AppLog.d("API", "listModels: request");
-                    URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
-                    connection = (HttpURLConnection) url.openConnection();
-                    if (connection instanceof HttpsURLConnection) {
-                        try {
-                            SSLContext sc = SSLContext.getInstance("TLSv1.2");
-                            sc.init(null, null, null);
-                            ((HttpsURLConnection) connection).setSSLSocketFactory(new Tls12SocketFactory(sc.getSocketFactory()));
-                        } catch (Exception ignored) {}
-                    }
-                    connection.setRequestMethod("GET");
-                    connection.setRequestProperty("x-goog-api-key", apiKey);
-                    connection.setConnectTimeout(20000);
-                    connection.setReadTimeout(30000);
-
-                    int responseCode = connection.getResponseCode();
-                    InputStream is = responseCode >= 200 && responseCode < 300
-                        ? connection.getInputStream() : connection.getErrorStream();
-                    if (is == null) { callback.onError("HTTP " + responseCode); return; }
+                    connection = Http.request("GET",
+                        "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+                        new String[]{"x-goog-api-key", apiKey}, null, 20000, 30000);
+                    int responseCode = connection.code;
+                    InputStream is = connection.in;
 
                     BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
                     StringBuilder sb = new StringBuilder();
@@ -159,7 +146,7 @@ public class GeminiApi {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                HttpURLConnection connection = null;
+                Http.Response connection = null;
                 try {
                     JSONObject body = new JSONObject();
                     JSONArray contents = new JSONArray();
@@ -182,33 +169,11 @@ public class GeminiApi {
                     body.put("generationConfig", genConfig);
 
                     AppLog.d("API", "generateImage: model=" + model + ", promptChars=" + (prompt != null ? prompt.length() : 0));
-                    URL url = new URL(BASE_URL + model + ":generateContent");
-                    connection = (HttpURLConnection) url.openConnection();
-                    if (connection instanceof HttpsURLConnection) {
-                        try {
-                            SSLContext sc = SSLContext.getInstance("TLSv1.2");
-                            sc.init(null, null, null);
-                            ((HttpsURLConnection) connection).setSSLSocketFactory(new Tls12SocketFactory(sc.getSocketFactory()));
-                        } catch (Exception ignored) {}
-                    }
-                    connection.setRequestMethod("POST");
-                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    connection.setConnectTimeout(30000);
-                    connection.setRequestProperty("x-goog-api-key", apiKey);
-                    connection.setReadTimeout(120000); 
-                    connection.setDoOutput(true);
-                    connection.setDoInput(true);
-
-                    byte[] outputBytes = body.toString().getBytes("UTF-8");
-                    OutputStream os = connection.getOutputStream();
-                    os.write(outputBytes);
-                    os.flush();
-                    os.close();
-
-                    int responseCode = connection.getResponseCode();
-                    InputStream is = responseCode >= 200 && responseCode < 300
-                        ? connection.getInputStream() : connection.getErrorStream();
-                    if (is == null) { callback.onError("HTTP " + responseCode); return; }
+                    connection = Http.request("POST", BASE_URL + model + ":generateContent",
+                        new String[]{"Content-Type", "application/json; charset=utf-8", "x-goog-api-key", apiKey},
+                        body.toString().getBytes("UTF-8"), 30000, 120000);
+                    int responseCode = connection.code;
+                    InputStream is = connection.in;
 
                     BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
                     StringBuilder sb = new StringBuilder();
@@ -288,7 +253,7 @@ public class GeminiApi {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                HttpURLConnection connection = null;
+                Http.Response connection = null;
                 try {
                     JSONObject body = new JSONObject();
 
@@ -339,35 +304,13 @@ public class GeminiApi {
                     AppLog.d("API", "sendMessage: model=" + model + ", stream=" + doStream + ", search=" + search
                         + ", temp=" + temperature + ", history=" + history.size()
                         + ", systemPrompt=" + (systemPrompt != null && systemPrompt.length() > 0));
-                    URL url = new URL(BASE_URL + model
-                        + (doStream ? ":streamGenerateContent?alt=sse" : ":generateContent")
-                        );
-                    connection = (HttpURLConnection) url.openConnection();
-                    if (connection instanceof HttpsURLConnection) {
-                        try {
-                            SSLContext sc = SSLContext.getInstance("TLSv1.2");
-                            sc.init(null, null, null);
-                            ((HttpsURLConnection) connection).setSSLSocketFactory(new Tls12SocketFactory(sc.getSocketFactory()));
-                        } catch (Exception ignored) {}
-                    }
-                    connection.setRequestMethod("POST");
-                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    connection.setConnectTimeout(20000);
-                    connection.setReadTimeout(60000);
-                    connection.setRequestProperty("x-goog-api-key", apiKey);
-                    if (doStream) connection.setRequestProperty("Accept-Encoding", "identity");
-                    connection.setDoOutput(true);
-                    connection.setDoInput(true);
-
-                    byte[] outputBytes = body.toString().getBytes("UTF-8");
-                    OutputStream os = connection.getOutputStream();
-                    os.write(outputBytes);
-                    os.flush();
-                    os.close();
-
-                    int responseCode = connection.getResponseCode();
-                    InputStream is = responseCode >= 200 && responseCode < 300
-                        ? connection.getInputStream() : connection.getErrorStream();
+                    connection = Http.request("POST", BASE_URL + model
+                        + (doStream ? ":streamGenerateContent?alt=sse" : ":generateContent"),
+                        new String[]{"Content-Type", "application/json; charset=utf-8", "x-goog-api-key", apiKey,
+                            "Accept-Encoding", "identity"},
+                        body.toString().getBytes("UTF-8"), 20000, 60000);
+                    int responseCode = connection.code;
+                    InputStream is = connection.in;
 
                     if (is == null) {
                         callback.onError("HTTP " + responseCode);

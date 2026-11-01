@@ -60,7 +60,7 @@ public class Tls12SocketFactory extends SSLSocketFactory {
     }
 
     private Socket patch(Socket s) {
-        if (android.os.Build.VERSION.SDK_INT >= 20) return s;
+        if (Http.sdk() >= 20) return s;
         if (s instanceof SSLSocket) {
             ((SSLSocket) s).setEnabledProtocols(TLS_V12);
         }

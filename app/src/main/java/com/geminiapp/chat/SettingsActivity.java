@@ -42,6 +42,12 @@ public class SettingsActivity extends Activity {
     private GeminiApi geminiApi;
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Updater.detach(this);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
@@ -152,6 +158,23 @@ public class SettingsActivity extends Activity {
         cbThinking.setChecked(prefs.isThinkingAnim());
         layout.addView(cbThinking);
 
+        // ---- Автообновление ----
+        final android.widget.CheckBox cbAutoUpdate = new android.widget.CheckBox(this);
+        cbAutoUpdate.setText(isRu ? "Автообновление (проверка раз в сутки)"
+                                  : "Auto-update (check once a day)");
+        cbAutoUpdate.setChecked(prefs.isAutoUpdate());
+        layout.addView(cbAutoUpdate);
+
+        Button btnCheckUpdate = new Button(this);
+        btnCheckUpdate.setText(isRu ? "Проверить обновления" : "Check for updates");
+        layout.addView(btnCheckUpdate);
+        btnCheckUpdate.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Updater.check(SettingsActivity.this, true);
+            }
+        });
+
         // ---- Экспериментальные функции ----
         TextView labelExperimental = new TextView(this);
         labelExperimental.setText(isRu ? "Экспериментальные функции" : "Experimental features");
@@ -181,7 +204,7 @@ public class SettingsActivity extends Activity {
 
         final EditText etTrimLimit = new EditText(this);
         etTrimLimit.setSingleLine(true);
-        etTrimLimit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        try { etTrimLimit.setInputType(InputType.TYPE_CLASS_NUMBER); } catch (Throwable ignored) {} // setInputType есть только с API 3
         etTrimLimit.setText(String.valueOf(prefs.getTrimLimit()));
         layout.addView(etTrimLimit);
 
@@ -444,6 +467,7 @@ public class SettingsActivity extends Activity {
                 prefs.setStream(cbStream.isChecked());
                 prefs.setSmoothText(cbSmooth.isChecked());
                 prefs.setThinkingAnim(cbThinking.isChecked());
+                prefs.setAutoUpdate(cbAutoUpdate.isChecked());
                 int imgPos = spinnerImageModel.getSelectedItemPosition();
                 prefs.setImageModel(imgPos > 0 && imgPos < imageModelList.size() ? imageModelList.get(imgPos) : "");
                 prefs.setImageRemember(cbRememberImage.isChecked() && imgPos > 0);
@@ -472,6 +496,9 @@ public class SettingsActivity extends Activity {
                 finish();
             }
         });
+
+        // Автообновление: после поворота экрана вернуть окно обновления, если оно было здесь
+        Updater.attach(this);
 
         String versionName = "?";
         try {

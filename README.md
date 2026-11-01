@@ -220,7 +220,6 @@ Legend: ✅ works out of the box, 🟡 works through the built-in TLS 1.2 client
 | Text chat with Gemini (streaming, model list, Google Search) | 🟡⚠️ | 🟡 | ✅ | ✅ |
 | Image generation (`/image`, paid plan needed) | 🟡⚠️ | 🟡 | ✅ | ✅ |
 | Images inside answers (Markdown `![](https://...)`) | link only | link only | ✅ | ✅ |
-| Wolfius hint on first launch | removed | removed | removed | removed |
 
 Notes:
 

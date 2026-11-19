@@ -28,6 +28,9 @@ public final class PendingState {
     public static volatile String error = null;
     public static volatile String pendingModel = null;
 
+    // Запущенный текстовый запрос: по нему кнопка «Стоп» обрывает ответ (для картинок null)
+    public static volatile GeminiApi.Request request = null;
+
     public static volatile String pendingImageBase64 = null;
     public static volatile String pendingImageMime = "image/jpeg";
     public static volatile String inputText = "";
@@ -42,6 +45,7 @@ public final class PendingState {
         error = null;
         pendingModel = null;
         startModel = null;
+        request = null;
     }
 
     public static void clearImage() {

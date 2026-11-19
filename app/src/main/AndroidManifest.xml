@@ -10,6 +10,13 @@
     <!-- Автообновление: установка скачанного APK (нужно с Android 8) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Android 11+: без этого приложение не видит сторонние движки синтеза речи (озвучивание ответов) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -36,6 +43,13 @@
         <provider
             android:name=".UpdateFileProvider"
             android:authorities="com.geminiapp.chat.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <!-- Отдаёт наружу экспортированный JSON с чатами (для шаринга/сохранения) -->
+        <provider
+            android:name=".ExportFileProvider"
+            android:authorities="com.geminiapp.chat.export"
             android:exported="false"
             android:grantUriPermissions="true" />
 

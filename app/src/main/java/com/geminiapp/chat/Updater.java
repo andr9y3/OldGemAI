@@ -19,6 +19,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -353,10 +354,13 @@ public final class Updater {
                 if (r.code != 200) throw new IOException("HTTP " + r.code);
 
                 long total = r.contentLength;
-                // До Android 7 установщик читает файл напрямую, поэтому он должен быть доступен для чтения всем;
-                // с Android 7 файл отдаёт UpdateFileProvider.
-                int mode = Http.sdk() < 24 ? Context.MODE_WORLD_READABLE : Context.MODE_PRIVATE;
-                out = app.openFileOutput(UPDATE_FILE, mode);
+                // Файл всегда пишется приватно (MODE_PRIVATE). До Android 7 установщик читает его
+                // напрямую через file://, поэтому доступным для чтения другим приложениям его делают
+                // отдельно, непосредственно перед запуском установки в install() - а не на всё время
+                // скачивания, как было раньше через MODE_WORLD_READABLE (устаревший, небезопасный флаг:
+                // он открывал файл на чтение любому приложению на устройстве на весь срок загрузки и
+                // ожидания, пока пользователь нажмёт "Установить").
+                out = app.openFileOutput(UPDATE_FILE, Context.MODE_PRIVATE);
 
                 InputStream in = r.in;
                 byte[] buf = new byte[16384];
@@ -483,7 +487,13 @@ public final class Updater {
             i.setDataAndType(Uri.parse("content://" + AUTHORITY + "/" + UPDATE_FILE), APK_MIME);
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } else {
-            i.setDataAndType(Uri.fromFile(app.getFileStreamPath(UPDATE_FILE)), APK_MIME);
+            // На этих версиях установщик открывает файл напрямую по file://, поэтому именно сейчас,
+            // прямо перед запуском, а не заранее при скачивании, делаем файл читаемым для всех
+            // (окно незащищённости сводится к секундам между нажатием "Установить" и запуском
+            // системного инсталлятора, а не длится всё время загрузки).
+            File f = app.getFileStreamPath(UPDATE_FILE);
+            f.setReadable(true, false);
+            i.setDataAndType(Uri.fromFile(f), APK_MIME);
         }
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         app.startActivity(i);

@@ -8,6 +8,9 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **Image input** - attach a photo from your gallery and ask questions about it
 - **Image generation** - type `/image <prompt>` to generate an image with Gemini; the app loads the list of image models and lets you pick one in a dialog (see below)
 - **Streaming responses** - the answer is typed out gradually as Gemini generates it; can be turned off in Settings to get the full answer at once (the old behavior)
+- **Stop button** - while a text answer is being generated, the send button turns into a Stop button (square icon); tap it to cut the answer off, the part that is already written stays in the chat and in the history
+- **Voice input** - a microphone button next to the input field opens the system speech recognition window; the recognized text is inserted into the input field at the cursor (it is not sent automatically). No microphone permission is needed. On Android older than 1.5 (API 3) the button shows a refusal message instead of recording
+- **Read aloud** - a speaker icon under every model answer (next to Regenerate, Copy and Edit) reads the answer out loud with the text-to-speech engine installed in the system; tap it again to stop. It does not depend on Google services: any engine selected in the phone settings works. On Android older than 1.6 (API 4) an error message is shown instead
 - **Chat history** - chats are saved to a local SQLite database; open, rename or delete them from the History screen
 - **Copy and edit model answers** - under every text answer there are Copy and Edit icons next to the Regenerate icon (all icons are white); Edit opens a window where you can change the answer text, the corrected answer is saved to the chat history
 - **Your messages** - hold one of your own messages to get a menu with Edit and Copy
@@ -109,6 +112,12 @@ On first launch the app asks you to choose a language, then shows a page about a
 
 **Streaming** - by default the answer appears gradually while Gemini is writing it. To get the full answer at once, as in earlier versions, turn off the streaming checkbox in Settings and tap Save.
 
+**Stop** - while a text answer is being generated, the send button shows a square (Stop) instead of the arrow. Tap it to stop the answer: the text that already appeared stays in the chat and is saved to the history. If nothing has arrived yet, the empty answer is removed and your message stays. Image generation (`/image`) cannot be stopped, the button is just disabled while it runs.
+
+**Voice input** - tap the microphone button between the input field and the send button. The system speech recognition window opens (usually from the Google app); speak, and the recognized text is inserted into the input field at the cursor position (selected text is replaced, a space is added when needed). The message is not sent automatically, so you can check and edit the text first. The recognition language follows the app language: Russian gives `ru-RU`, English gives `en-US`. The button also works while an answer is being generated. The app does not record sound itself and does not need the microphone permission: the recognition app listens. Before opening the window the app checks the Android version; on Android older than 1.5 (API 3), where there is no system speech recognition, it refuses and shows a message. If no speech recognition app is installed, a hint about it is shown.
+
+**Read aloud** - tap the speaker icon under a model answer to hear it; tap it again to stop. The answer is read in the app language (Russian or English). Markdown is cleaned before reading: code blocks and pictures are skipped, links are read as their text, bare web addresses are skipped, so the engine does not pronounce asterisks and hashes. Long answers are split into parts automatically. Speaking also stops when you start a new request, open another chat or clear the chat. The icon is hidden while the answer is still being generated. The voice is made by the text-to-speech engine of the phone (Settings, Language and input, Text-to-speech), so it can be Google, Samsung, RHVoice, eSpeak or any other engine. Errors are shown as a short message: Android older than 1.6, no engine installed or the engine failed to start, the engine does not know the language or has no voice data for it, nothing to read.
+
 **Chat history** - every chat is saved automatically. Tap the menu button (three bars) to see saved chats and tap one to open it. Long-press a chat in the list to open, rename or delete it; the menu in the History screen has Clear all.
 
 **Copy text** - tap the Copy icon under a model answer to copy it. To copy one of your own messages, long-press it and choose Copy.
@@ -136,6 +145,8 @@ app/src/main/java/com/geminiapp/chat/
 ├── UpdateFileProvider.java    - hands the downloaded APK to the system installer on Android 7+ (no androidx FileProvider)
 ├── Prefs.java                 - SharedPreferences wrapper
 ├── PendingState.java          - static state that keeps a running request, input text and attached image across activity recreation
+├── VoiceInput.java            - voice input through the system speech recognition window (RecognizerIntent), with a check of the Android version before it starts
+├── Speaker.java               - read-aloud through the system text-to-speech engine (TextToSpeech), Markdown cleaning, splitting long text, Android version check
 ├── Base64Compat.java          - Base64 encoder/decoder that works on any Android version (android.util.Base64 appeared only in API 8)
 ├── TypingDotsView.java        - animated three dots shown while the answer has not started yet (drawn by hand, works on any Android version)
 ├── Tls12SocketFactory.java    - turns on system TLS 1.2 on Android 4.1-4.4
@@ -157,6 +168,10 @@ Messages are written to SQLite by `ChatDatabase.syncMessages`, which counts the 
 Model replies are rendered by a small built-in Markdown parser in `ChatAdapter` (no external libraries). `Base64Compat` replaces `android.util.Base64`, which is not available before API 8.
 
 Streaming uses the `streamGenerateContent?alt=sse` endpoint (Server-Sent Events); the response is read line by line and the message bubble is updated on every chunk.
+
+Voice input: `VoiceInput` starts `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` with `startActivityForResult` and `MainActivity.onActivityResult` inserts the best recognition result into the input field. The Android version is checked first (`RecognizerIntent` exists since API 3); on an older version recording is not started and a refusal message is shown. All `RecognizerIntent` code lives in `VoiceInput`, so `MainActivity` does not depend on it directly. The microphone permission is not needed because the system recognition app does the listening, so the manifest has no `RECORD_AUDIO`. The recognition window is drawn by the system and cannot be restyled.
+
+Read aloud: `Speaker` uses `android.speech.tts.TextToSpeech` (API 4+), so it works with whichever engine the user chose in the system and needs no Google services or extra libraries. The Android version is checked in `MainActivity` before `Speaker` is touched (`Speaker.MIN_SDK` is a compile-time constant), on an older version the engine is not started and an error is shown. The engine starts on the first tap (the text waits for `OnInitListener`), is reused afterwards and is released when the app is closed. The language is set with `setLanguage` from the app language; a negative result means the language or its voice data is missing. The deprecated `speak(String, int, HashMap)` is used on purpose because it exists on all versions from API 4 to the newest. `isSpeaking()` decides whether a tap starts or stops the speech. Long text is cut into parts of up to 1500 characters (the engine limit is 4000, `getMaxSpeechInputLength`) at line ends and sentence ends and queued with `QUEUE_ADD`. The manifest has a `queries` entry for the `android.intent.action.TTS_SERVICE` action, which Android 11+ requires for apps that use text-to-speech.
 
 Error handling: the HTTP code and status returned by the API are parsed in `GeminiApi.formatHttpError` and turned into a readable dialog by `MainActivity.showErrorDialog` (quota exhausted, rate limit, invalid key, permission denied, model not found, server overloaded, timeout, empty response and others). The request always goes to the model chosen in Settings; there is no automatic switching to another model.
 
@@ -182,6 +197,8 @@ The file is saved in the app's private storage as `update.apk`. Before Android 7
 - Chats (including attached and generated images) are stored unencrypted in a local SQLite database inside the app's private storage.
 - Android backup is disabled (`allowBackup="false"`), so the key and chats are not copied to cloud or adb backups.
 - The whole conversation history, including images, is sent to Google's servers with every request.
+- Voice input is handled by the speech recognition app of the phone (usually Google), not by OldGemAI: the app gets only the recognized text. Whether the sound is processed on the device or sent to a server depends on that app.
+- Read aloud is done by the text-to-speech engine of the phone: the answer text is passed to that engine. Whether the engine works offline or sends the text to a server depends on the engine.
 - If you use a rooted device, other apps with root access can read the key and chats.
 
 ## Screenshots
@@ -220,6 +237,8 @@ Legend: ✅ works out of the box, 🟡 works through the built-in TLS 1.2 client
 | Text chat with Gemini (streaming, model list, Google Search) | 🟡⚠️ | 🟡 | ✅ | ✅ |
 | Image generation (`/image`, paid plan needed) | 🟡⚠️ | 🟡 | ✅ | ✅ |
 | Images inside answers (Markdown `![](https://...)`) | link only | link only | ✅ | ✅ |
+| Voice input (needs a speech recognition app, usually Google) | refused on API 1-2, untested on API 3-8 | untested | untested | untested |
+| Read aloud (needs a text-to-speech engine, any) | refused on API 1-3, untested on API 4-8 | untested | untested | untested |
 
 Notes:
 
@@ -227,6 +246,8 @@ Notes:
 - Android 2.3 and newer used to reach Gemini through the system TLS; since version 2.0 all versions below 4.1 use the built-in TLS 1.2 client, which has not been tested on a real device yet.
 - Android 1.0-1.5 devices have only one screen density, so the app icon there may be the default one.
 - On Android 1.5 (API 3) the icons under answers have no accessibility labels, because the system supports them only from API 4. The icons themselves work.
+- Voice input uses the system speech recognition window, so it works only if the phone has a speech recognition app (usually the Google app). On Android 1.0-1.1 (API 1-2) the app refuses to start recording and shows a message.
+- Read aloud uses the text-to-speech engine of the system, so it works only if the phone has one with the voice data of the needed language. On Android 1.0-1.5 (API 1-3) the app refuses to start it and shows a message.
 
 ### Tested devices
 

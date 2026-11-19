@@ -12,16 +12,28 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 public class SettingsActivity extends Activity {
+
+    // Имя файла экспорта во внутреннем хранилище приложения; отдаётся наружу через ExportFileProvider
+    public static final String EXPORT_FILE_NAME = "chats_export.json";
+    private static final String EXPORT_AUTHORITY = "com.geminiapp.chat.export";
 
     private Prefs prefs;
     private EditText etApiKey;
@@ -40,6 +52,11 @@ public class SettingsActivity extends Activity {
     private ArrayAdapter<String> modelAdapter;
     private Handler mainHandler;
     private GeminiApi geminiApi;
+    private ChatDatabase chatDb;
+    private Button btnExport;
+    private ProgressBar progressExport;
+    private TextView tvExportStatus;
+    private boolean exportRunning = false;
 
     @Override
     protected void onDestroy() {
@@ -54,6 +71,7 @@ public class SettingsActivity extends Activity {
         prefs = new Prefs(this);
         mainHandler = new Handler(Looper.getMainLooper());
         geminiApi = new GeminiApi();
+        chatDb = new ChatDatabase(this);
         final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
 
         setTitle(isRu ? "Настройки" : "Settings");
@@ -306,6 +324,45 @@ public class SettingsActivity extends Activity {
             }
         });
 
+        // ---- Экспорт чатов ----
+        TextView labelExport = new TextView(this);
+        labelExport.setText(isRu ? "Экспорт чатов" : "Export chats");
+        labelExport.setTextSize(16);
+        labelExport.setTypeface(null, android.graphics.Typeface.BOLD);
+        labelExport.setPadding(0, 24, 0, 4);
+        layout.addView(labelExport);
+
+        TextView tvExportHint = new TextView(this);
+        tvExportHint.setText(isRu
+            ? "Сохраняет всю историю чатов (включая прикреплённые и сгенерированные картинки) в один JSON-файл, который можно переслать или сохранить."
+            : "Saves the whole chat history (including attached and generated images) into one JSON file that can be shared or saved.");
+        tvExportHint.setTextColor(0xFF888888);
+        tvExportHint.setTextSize(12);
+        tvExportHint.setPadding(0, 0, 0, 4);
+        layout.addView(tvExportHint);
+
+        btnExport = new Button(this);
+        btnExport.setText(isRu ? "Экспортировать чаты в JSON" : "Export chats to JSON");
+        layout.addView(btnExport);
+
+        progressExport = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressExport.setMax(100);
+        progressExport.setVisibility(View.GONE);
+        layout.addView(progressExport, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        tvExportStatus = new TextView(this);
+        tvExportStatus.setTextSize(12);
+        tvExportStatus.setVisibility(View.GONE);
+        layout.addView(tvExportStatus);
+
+        btnExport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startExportChats();
+            }
+        });
+
         TextView tvGithub = new TextView(this);
         tvGithub.setPadding(0, 20, 0, 10);
         layout.addView(tvGithub);
@@ -524,5 +581,146 @@ public class SettingsActivity extends Activity {
                 startActivity(intent);
             }
         });
+    }
+
+    // Запускает экспорт в фоновом потоке: БД читается не на UI-потоке, прогресс обновляется через mainHandler
+    private void startExportChats() {
+        final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (exportRunning) return;
+
+        List<ChatDatabase.ChatInfo> chats = chatDb.getAllChats();
+        if (chats.isEmpty()) {
+            Toast.makeText(this, isRu ? "Нет сохранённых чатов" : "No saved chats", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        exportRunning = true;
+        btnExport.setEnabled(false);
+        progressExport.setIndeterminate(false);
+        progressExport.setMax(chats.size());
+        progressExport.setProgress(0);
+        progressExport.setVisibility(View.VISIBLE);
+        tvExportStatus.setVisibility(View.VISIBLE);
+        tvExportStatus.setText(isRu ? "Экспорт... 0 из " + chats.size() : "Exporting... 0 of " + chats.size());
+        AppLog.d("Settings", "Export started, chats=" + chats.size());
+
+        final List<ChatDatabase.ChatInfo> chatsFinal = chats;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                runExport(chatsFinal, isRu);
+            }
+        }).start();
+    }
+
+    // Выполняется в фоновом потоке: читает чаты из БД, собирает JSON, пишет файл; UI обновляется через mainHandler.post
+    private void runExport(List<ChatDatabase.ChatInfo> chats, final boolean isRu) {
+        final int total = chats.size();
+        try {
+            JSONArray chatsArr = new JSONArray();
+            for (int i = 0; i < total; i++) {
+                ChatDatabase.ChatInfo info = chats.get(i);
+                JSONObject chatObj = new JSONObject();
+                chatObj.put("id", info.id);
+                chatObj.put("title", info.title != null ? info.title : "");
+                chatObj.put("created_at", info.createdAt);
+                chatObj.put("updated_at", info.updatedAt);
+
+                JSONArray msgsArr = new JSONArray();
+                List<GeminiApi.Message> msgs = chatDb.getChatMessages(info.id);
+                for (GeminiApi.Message m : msgs) {
+                    JSONObject msgObj = new JSONObject();
+                    msgObj.put("role", m.role != null ? m.role : "");
+                    msgObj.put("text", m.text != null ? m.text : "");
+                    if (m.imageBase64 != null && m.imageBase64.length() > 0) {
+                        msgObj.put("image_base64", m.imageBase64);
+                        msgObj.put("image_mime_type", m.imageMimeType != null ? m.imageMimeType : "");
+                        msgObj.put("is_generated_image", m.isGeneratedImage);
+                    }
+                    msgsArr.put(msgObj);
+                }
+                chatObj.put("messages", msgsArr);
+                chatsArr.put(chatObj);
+
+                final int done = i + 1;
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        progressExport.setProgress(done);
+                        tvExportStatus.setText((isRu ? "Экспорт... " : "Exporting... ") + done + (isRu ? " из " : " of ") + total);
+                    }
+                });
+            }
+
+            JSONObject root = new JSONObject();
+            root.put("exported_at", System.currentTimeMillis());
+            String versionName = "?";
+            try { versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) {}
+            root.put("app_version", versionName);
+            root.put("chats", chatsArr);
+
+            String json = root.toString();
+            FileOutputStream out = openFileOutput(EXPORT_FILE_NAME, MODE_PRIVATE);
+            try {
+                out.write(json.getBytes("UTF-8"));
+            } finally {
+                out.close();
+            }
+
+            final int kb = Math.max(1, json.length() / 1024);
+            AppLog.d("Settings", "Export finished, chats=" + total + ", size=" + kb + "KB");
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    onExportDone(total, kb, isRu);
+                }
+            });
+        } catch (final JSONException e) {
+            AppLog.w("Settings", "Export failed (JSON): " + e.getMessage());
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    onExportFailed(e.getMessage(), isRu);
+                }
+            });
+        } catch (final IOException e) {
+            AppLog.w("Settings", "Export failed (IO): " + e.getMessage());
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    onExportFailed(e.getMessage(), isRu);
+                }
+            });
+        }
+    }
+
+    // Экспорт завершён успешно: скрываем прогресс, показываем итог и сразу предлагаем переслать файл
+    // (внутреннее хранилище приложения иначе не видно пользователю без root - без пересылки экспорт некуда сохранить)
+    private void onExportDone(int chatCount, int kb, boolean isRu) {
+        exportRunning = false;
+        btnExport.setEnabled(true);
+        progressExport.setVisibility(View.GONE);
+        tvExportStatus.setText(isRu
+            ? "Готово: " + chatCount + " чат(ов), " + kb + " КБ"
+            : "Done: " + chatCount + " chat(s), " + kb + " KB");
+
+        try {
+            Uri uri = Uri.parse("content://" + EXPORT_AUTHORITY + "/" + EXPORT_FILE_NAME);
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("application/json");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, isRu ? "Сохранить/переслать экспорт" : "Save/share the export"));
+        } catch (Exception e) {
+            AppLog.w("Settings", "Export share failed: " + e.getMessage());
+            Toast.makeText(this, isRu ? "Не удалось открыть окно пересылки" : "Could not open the share dialog", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void onExportFailed(String error, boolean isRu) {
+        exportRunning = false;
+        btnExport.setEnabled(true);
+        progressExport.setVisibility(View.GONE);
+        tvExportStatus.setText((isRu ? "Ошибка экспорта: " : "Export error: ") + error);
     }
 }

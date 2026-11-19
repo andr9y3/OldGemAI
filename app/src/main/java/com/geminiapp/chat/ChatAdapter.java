@@ -103,6 +103,8 @@ public class ChatAdapter extends BaseAdapter {
         // true, пока ответ ещё генерируется (кнопки под ним не показываются)
         boolean isBusy();
         void onEditResponse(int position);
+        // Кнопка «Озвучить» под ответом: text - текст ответа (с Markdown, очистку делает озвучивание)
+        void onSpeakResponse(String text);
     }
 
     private ResponseActionListener responseActionListener;
@@ -1093,6 +1095,7 @@ public class ChatAdapter extends BaseAdapter {
         // Пока последний ответ ещё печатается, копировать и менять его нельзя
         boolean showCopy = hasText && !(busy && isLast);
         boolean showEdit = showCopy && responseActionListener != null;
+        boolean showSpeak = showEdit;
         if (!showRegen && !showCopy) return;
 
         LinearLayout row = new LinearLayout(context);
@@ -1127,6 +1130,17 @@ public class ChatAdapter extends BaseAdapter {
                         public void onClick(View v) {
                             ResponseActionListener l = responseActionListener;
                             if (l != null) l.onEditResponse(position);
+                        }
+                    }));
+        }
+        if (showSpeak) {
+            row.addView(makeActionButton(SvgIcon.fromRaw(context, R.raw.ic_volume_up, dp(24), ICON_COLOR),
+                    ru ? "Озвучить ответ" : "Read response aloud",
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            ResponseActionListener l = responseActionListener;
+                            if (l != null) l.onSpeakResponse(text);
                         }
                     }));
         }

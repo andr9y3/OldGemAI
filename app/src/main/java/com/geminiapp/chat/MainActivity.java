@@ -36,8 +36,14 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     private static final int REQUEST_PICK_IMAGE = 1001;
     private static final int REQUEST_HISTORY = 1002;
+    private static final int REQUEST_VOICE = 1003;
     private static final int MAX_IMAGE_SIZE = 512;
     private static final int JPEG_QUALITY = 60;
+
+    // Быстрое переключение модели (вкладки рядом с кнопкой истории чатов)
+    private static final String QUICK_MODEL_LITE = "gemini-flash-lite-latest";
+    private static final String QUICK_MODEL_FLASH = "gemini-flash-latest";
+    private static final String QUICK_MODEL_PRO = "gemini-pro-latest";
 
     private Prefs prefs;
     private List<GeminiApi.Message> messages;
@@ -49,9 +55,13 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private ListView lvChat;
     private EditText etMessage;
     private android.widget.ImageButton btnSend;
+    private android.widget.ImageButton btnMic;
     private Button btnAttach;
     private LinearLayout topBar;
     private android.widget.ImageButton btnMenu;
+    private TextView tvModelLite;
+    private TextView tvModelFlash;
+    private TextView tvModelPro;
 
     private TextView tvNoKeyBanner;
     private ImageView ivPreview;
@@ -116,10 +126,51 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
         topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
         btnMenu = new android.widget.ImageButton(this);
         btnMenu.setImageDrawable(new MenuIcon(dp(24), 0xFF000000));
         topBar.addView(btnMenu, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // Быстрое переключение модели: три вкладки, занимают всё свободное место топ-бара
+        LinearLayout modelSwitcher = new LinearLayout(this);
+        modelSwitcher.setOrientation(LinearLayout.HORIZONTAL);
+        modelSwitcher.setPadding(dp(6), dp(4), dp(6), dp(4));
+        topBar.addView(modelSwitcher, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        tvModelLite = makeModelTab();
+        tvModelFlash = makeModelTab();
+        tvModelPro = makeModelTab();
+        tvModelLite.setText("Lite");
+        tvModelFlash.setText("Flash");
+        tvModelPro.setText("Pro");
+        LinearLayout.LayoutParams tabParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        int tabMargin = dp(2);
+        LinearLayout.LayoutParams tabParamsL = new LinearLayout.LayoutParams(tabParams);
+        tabParamsL.setMargins(0, 0, tabMargin, 0);
+        LinearLayout.LayoutParams tabParamsM = new LinearLayout.LayoutParams(tabParams);
+        tabParamsM.setMargins(tabMargin, 0, tabMargin, 0);
+        LinearLayout.LayoutParams tabParamsR = new LinearLayout.LayoutParams(tabParams);
+        tabParamsR.setMargins(tabMargin, 0, 0, 0);
+        modelSwitcher.addView(tvModelLite, tabParamsL);
+        modelSwitcher.addView(tvModelFlash, tabParamsM);
+        modelSwitcher.addView(tvModelPro, tabParamsR);
+
+        tvModelLite.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) { selectQuickModel(QUICK_MODEL_LITE); }
+        });
+        tvModelFlash.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) { selectQuickModel(QUICK_MODEL_FLASH); }
+        });
+        tvModelPro.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) { selectQuickModel(QUICK_MODEL_PRO); }
+        });
+
         mainLayout.addView(topBar);
         btnMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -221,6 +272,18 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
         inputLayout.addView(etMessage, editParams);
 
+        // Кнопка голосового ввода: иконка из res/raw/ic_mic.svg, распознанный текст вставляется в поле ввода
+        btnMic = new android.widget.ImageButton(this);
+        btnMic.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this, R.raw.ic_mic, dp(24), 0xFF000000));
+        btnMic.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startVoiceInput();
+            }
+        });
+        inputLayout.addView(btnMic, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         // Кнопка отправки: иконка-самолётик из res/raw/ic_send.svg
         btnSend = new android.widget.ImageButton(this) {
             @Override
@@ -267,6 +330,11 @@ public class MainActivity extends Activity implements PendingState.Listener {
             public void onEditResponse(int position) {
                 startEditResponse(position);
             }
+
+            @Override
+            public void onSpeakResponse(String text) {
+                speakResponse(text);
+            }
         });
         lvChat.setAdapter(adapter);
         lvChat.setOnTouchListener(new View.OnTouchListener() {
@@ -294,7 +362,9 @@ public class MainActivity extends Activity implements PendingState.Listener {
         btnSend.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                sendMessage();
+                // Пока идёт текстовый ответ, это кнопка «Стоп»
+                if (isStopMode()) stopGeneration();
+                else sendMessage();
             }
         });
 
@@ -347,7 +417,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
             final String err = PendingState.error;
             PendingState.clearResponse();
             pendingResponse = false;
-            btnSend.setEnabled(true);
+            updateSendButton();
             btnAttach.setEnabled(true);
             loadMessagesFromDb();
             mainHandler.post(new Runnable() {
@@ -363,7 +433,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
             String img = PendingState.finalImageBase64;
             PendingState.clearResponse();
             pendingResponse = false;
-            btnSend.setEnabled(true);
+            updateSendButton();
             btnAttach.setEnabled(true);
             loadMessagesFromDb();
             messages.add(new GeminiApi.Message("model", "", img, true));
@@ -377,7 +447,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
             String resp = PendingState.finalResponse;
             PendingState.clearResponse();
             pendingResponse = false;
-            btnSend.setEnabled(true);
+            updateSendButton();
             btnAttach.setEnabled(true);
             loadMessagesFromDb();
             messages.add(new GeminiApi.Message("model", resp));
@@ -389,7 +459,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
         if (PendingState.pending) {
             pendingResponse = true;
-            btnSend.setEnabled(false);
+            updateSendButton();   // если это текстовый ответ, кнопка остаётся «Стоп»
             btnAttach.setEnabled(false);
             loadMessagesFromDb();
             String soFar = PendingState.partialText != null ? PendingState.partialText : "";
@@ -437,6 +507,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         }
         if (isFinishing()) {
             PendingState.clearAll();
+            // Приложение закрывается: останавливаем озвучивание и освобождаем движок
+            if (Http.sdk() >= Speaker.MIN_SDK) {
+                try { Speaker.shutdown(); } catch (Throwable ignored) {}
+            }
         }
     }
 
@@ -460,6 +534,8 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     @Override
     public void onPendingSuccess(String text) {
+        // Ответ уже остановлен кнопкой «Стоп»: запаздывшее уведомление игнорируем
+        if (!pendingResponse) return;
         // Если текст ещё допечатывается, дожидаемся конца плавного вывода и только потом завершаем
         if (useSmoothText() && pendingResponse && messages.size() > 0 && revealShown < text.length()) {
             revealTarget = text;
@@ -480,11 +556,11 @@ public class MainActivity extends Activity implements PendingState.Listener {
             adapter.notifyDataSetChanged();
             if (pinned) scrollChatToBottom();
         }
-        btnSend.setEnabled(true);
         btnAttach.setEnabled(true);
         pendingResponse = false;
         saveNewMessages();
         PendingState.clearResponse();
+        updateSendButton();
     }
 
     @Override
@@ -496,30 +572,48 @@ public class MainActivity extends Activity implements PendingState.Listener {
         }
         adapter.notifyDataSetChanged();
         if (pinned) scrollChatToBottom();
-        btnSend.setEnabled(true);
         btnAttach.setEnabled(true);
         pendingResponse = false;
         saveNewMessages();
         PendingState.clearResponse();
+        updateSendButton();
     }
 
     @Override
     public void onPendingError(String error) {
+        // Ответ уже остановлен кнопкой «Стоп»: запаздывшее уведомление игнорируем
+        if (!pendingResponse) return;
         stopReveal();
         pendingResponse = false;
         if (messages.size() > 0) {
             messages.remove(messages.size() - 1);
             adapter.notifyDataSetChanged();
         }
-        btnSend.setEnabled(true);
         btnAttach.setEnabled(true);
-        showErrorDialog(error);
         PendingState.clearResponse();
+        updateSendButton();
+        showErrorDialog(error);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_VOICE) {
+            boolean ruVoice = Prefs.LANG_RU.equals(prefs.getLanguage());
+            if (resultCode == RESULT_OK) {
+                String spoken = VoiceInput.extractText(data);
+                if (spoken.length() > 0) {
+                    insertVoiceText(spoken);
+                } else {
+                    Toast.makeText(this, ruVoice ? "Речь не распознана" : "Speech was not recognized", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                String err = VoiceInput.errorText(resultCode, ruVoice);
+                if (err != null) Toast.makeText(this, err, Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
 
         if (requestCode == REQUEST_HISTORY && resultCode == RESULT_OK && data != null) {
             if (data.getBooleanExtra("new_chat", false)) {
@@ -601,6 +695,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     }
 
     private void loadChatFromHistory(long chatId) {
+        stopSpeech();
         exitEditMode(false);
         List<GeminiApi.Message> loaded = chatDb.getChatMessages(chatId);
         messages.clear();
@@ -666,18 +761,57 @@ public class MainActivity extends Activity implements PendingState.Listener {
         PendingState.inputText = etMessage != null ? etMessage.getText().toString() : "";
     }
 
+    // Создаёт одну вкладку переключателя моделей (стиль задаётся отдельно в styleModelTab)
+    private TextView makeModelTab() {
+        TextView tv = new TextView(this);
+        tv.setGravity(android.view.Gravity.CENTER);
+        tv.setTextSize(12);
+        tv.setPadding(0, dp(6), 0, dp(6));
+        return tv;
+    }
+
+    // Нажатие на вкладку: сразу переключает активную модель (без захода в настройки)
+    private void selectQuickModel(String model) {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (pendingResponse) {
+            Toast.makeText(this, isRu ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (model.equals(prefs.getModel())) return;
+        prefs.setModel(model);
+        // Явный выбор модели отменяет временный резервный выбор (см. Prefs.setFallbackModel)
+        prefs.clearFallbackModel();
+        AppLog.d("UI", "Quick model switch: " + model);
+        updateModelSwitcher();
+        Toast.makeText(this, (isRu ? "Модель: " : "Model: ") + model, Toast.LENGTH_SHORT).show();
+    }
+
+    // Подсвечивает вкладку текущей активной модели (с учётом запомненного резерва - см. Prefs.getActiveModel)
+    private void updateModelSwitcher() {
+        if (tvModelLite == null) return;
+        String active = prefs.getActiveModel();
+        styleModelTab(tvModelLite, QUICK_MODEL_LITE.equals(active));
+        styleModelTab(tvModelFlash, QUICK_MODEL_FLASH.equals(active));
+        styleModelTab(tvModelPro, QUICK_MODEL_PRO.equals(active));
+    }
+
+    private void styleModelTab(TextView tv, boolean selected) {
+        tv.setBackgroundColor(selected ? 0xFF1A73E8 : 0xFF2B2B2B);
+        tv.setTextColor(selected ? 0xFFFFFFFF : 0xFFAAAAAA);
+    }
+
     private void updateBanner() {
         boolean hasKey = !TextUtils.isEmpty(prefs.getApiKey());
         tvNoKeyBanner.setVisibility(hasKey ? View.GONE : View.VISIBLE);
+        updateModelSwitcher();
 
         boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
         tvNoKeyBanner.setText(isRu
             ? "API ключ не задан - ИИ не будет работать. Добавьте ключ в настройках."
             : "No API key set - AI will not work. Add your key in Settings.");
 
-        try {
-            btnSend.setContentDescription(isRu ? "Отправить" : "Send");
-        } catch (Throwable ignored) {}
+        updateSendButton();
+        updateMicButton();
         updateToolsLabel();
 
 
@@ -810,15 +944,194 @@ public class MainActivity extends Activity implements PendingState.Listener {
         startModelRequest(apiKey, isRu);
     }
 
+    // ---- Голосовой ввод ----
+
+    private void updateMicButton() {
+        if (btnMic == null) return;
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        try {
+            btnMic.setContentDescription(isRu ? "Голосовой ввод" : "Voice input");
+        } catch (Throwable ignored) {}
+    }
+
+    // Открывает системное окно распознавания речи; язык распознавания - язык интерфейса приложения.
+    // На версии Android, где голосового ввода нет (ниже Android 1.5), запись не запускается, показывается отказ.
+    private void startVoiceInput() {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        // MIN_SDK - константа времени компиляции, поэтому класс VoiceInput здесь ещё не загружается
+        if (Http.sdk() < VoiceInput.MIN_SDK) {
+            AppLog.w("UI", "Voice input refused: API " + Http.sdk() + " < " + VoiceInput.MIN_SDK);
+            String ver = android.os.Build.VERSION.RELEASE;
+            Toast.makeText(this, isRu
+                ? "Голосовой ввод не поддерживается на Android " + ver + " (нужен Android 1.5 или новее)"
+                : "Voice input is not supported on Android " + ver + " (Android 1.5 or newer is required)", Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Текущий текст поля сохраняем заранее: пока окно распознавания открыто, экран может пересоздаться
+        PendingState.inputText = etMessage.getText().toString();
+        int status = VoiceInput.start(this, REQUEST_VOICE, isRu);
+        if (status == VoiceInput.STARTED) return;
+        String msg;
+        if (status == VoiceInput.UNSUPPORTED_SDK) {
+            msg = isRu ? "Голосовой ввод не поддерживается на этой версии Android"
+                       : "Voice input is not supported on this Android version";
+        } else if (status == VoiceInput.NO_RECOGNIZER) {
+            msg = isRu ? "Нет приложения для распознавания речи (нужно приложение Google)"
+                       : "No speech recognition app found (the Google app is required)";
+        } else {
+            msg = isRu ? "Не удалось открыть голосовой ввод"
+                       : "Could not open voice input";
+        }
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    // Вставляет распознанный текст в поле ввода в место курсора (или заменяет выделенное), пробел добавляется при необходимости
+    private void insertVoiceText(String spoken) {
+        android.text.Editable e = etMessage.getText();
+        int start = etMessage.getSelectionStart();
+        int end = etMessage.getSelectionEnd();
+        if (start < 0 || end < 0) {
+            start = e.length();
+            end = start;
+        }
+        if (end < start) {
+            int tmp = start;
+            start = end;
+            end = tmp;
+        }
+        String ins = spoken;
+        if (start > 0 && !Character.isWhitespace(e.charAt(start - 1))) ins = " " + ins;
+        e.replace(start, end, ins);
+        etMessage.setSelection(Math.min(start + ins.length(), e.length()));
+        etMessage.requestFocus();
+    }
+
+    // ---- Озвучивание ответа ----
+
+    // Останавливает озвучивание; на Android без синтеза речи ничего не делает и класс Speaker не трогает
+    private void stopSpeech() {
+        if (Http.sdk() < Speaker.MIN_SDK) return;
+        try { Speaker.stop(); } catch (Throwable ignored) {}
+    }
+
+    // Кнопка «Озвучить» под ответом: читает ответ вслух, повторное нажатие останавливает.
+    // Версия Android проверяется до обращения к Speaker (MIN_SDK - константа времени компиляции):
+    // на неподдерживаемой версии синтез речи не запускается, показывается ошибка.
+    private void speakResponse(String text) {
+        final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        if (Http.sdk() < Speaker.MIN_SDK) {
+            AppLog.w("UI", "Speech refused: API " + Http.sdk() + " < " + Speaker.MIN_SDK);
+            showSpeakError(Speaker.UNSUPPORTED_SDK, isRu);
+            return;
+        }
+        try {
+            Speaker.toggle(this, text, isRu, new Speaker.Listener() {
+                @Override
+                public void onResult(int code) {
+                    showSpeakError(code, isRu);
+                }
+            });
+        } catch (Throwable t) {
+            AppLog.w("UI", "Speech call failed: " + t);
+            showSpeakError(Speaker.FAILED, isRu);
+        }
+    }
+
+    // Текст ошибки по коду результата озвучивания; для «началось» и «остановлено» ничего не показывается
+    private void showSpeakError(int code, boolean isRu) {
+        String msg;
+        if (code == Speaker.UNSUPPORTED_SDK) {
+            String ver = android.os.Build.VERSION.RELEASE;
+            msg = isRu
+                ? "Озвучивание не поддерживается на Android " + ver + " (нужен Android 1.6 или новее)"
+                : "Speech is not supported on Android " + ver + " (Android 1.6 or newer is required)";
+        } else if (code == Speaker.NO_ENGINE) {
+            msg = isRu
+                ? "Нет движка синтеза речи или он не запустился. Установите или включите его в настройках (Язык и ввод - Синтез речи)"
+                : "No text-to-speech engine found or it failed to start. Install or enable one in Settings (Language & input - Text-to-speech)";
+        } else if (code == Speaker.LANGUAGE_UNAVAILABLE) {
+            msg = isRu
+                ? "Выбранный движок синтеза речи не умеет читать по-русски или у него нет голосовых данных этого языка"
+                : "The selected text-to-speech engine cannot read English or has no voice data for it";
+        } else if (code == Speaker.NOTHING_TO_SPEAK) {
+            msg = isRu ? "В ответе нет текста для озвучивания" : "There is no text to read in this response";
+        } else if (code == Speaker.FAILED) {
+            msg = isRu ? "Не удалось озвучить текст" : "Could not read the text aloud";
+        } else {
+            return;   // STARTED и STOPPED - это не ошибки
+        }
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    // ---- Остановка ответа ----
+
+    // Идёт текстовый ответ (или подготовка к нему): кнопка отправки работает как «Стоп».
+    // У генерации картинки PendingState.request равен null, поэтому стопа там нет.
+    private boolean isStopMode() {
+        return pendingResponse && PendingState.request != null;
+    }
+
+    // Иконка и состояние кнопки отправки: «Стоп» (квадрат) пока идёт текстовый ответ,
+    // в остальных случаях самолётик (выключен, пока идёт генерация картинки)
+    private void updateSendButton() {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        boolean stop = isStopMode();
+        btnSend.setImageDrawable(ChatAdapter.SvgIcon.fromRaw(this,
+                stop ? R.raw.ic_stop : R.raw.ic_send, dp(24), 0xFF000000));
+        try {
+            if (stop) btnSend.setContentDescription(isRu ? "Остановить" : "Stop");
+            else btnSend.setContentDescription(isRu ? "Отправить" : "Send");
+        } catch (Throwable ignored) {}
+        // setEnabled вызываем после смены иконки: он затемняет текущую иконку
+        btnSend.setEnabled(stop || !pendingResponse);
+    }
+
+    // Кнопка «Стоп»: обрывает запрос, то, что уже напечатано, остаётся в чате и сохраняется в историю.
+    // Если ничего не пришло, заглушка ответа убирается, сообщение пользователя остаётся.
+    private void stopGeneration() {
+        if (!isStopMode()) return;
+        AppLog.d("UI", "Generation stopped by user");
+
+        // После cancel() колбэки запроса больше не вызываются
+        GeminiApi.Request req = PendingState.request;
+        if (req != null) req.cancel();
+
+        // Оставляем то, что уже показано в чате (при плавном выводе оно может отставать от полученного).
+        // "..." - заглушка до появления текста: тогда берём то, что уже пришло от модели.
+        String got = PendingState.partialText != null ? PendingState.partialText : "";
+        String keep = "";
+        if (messages.size() > 0) {
+            String shown = messages.get(messages.size() - 1).text;
+            keep = shown != null ? shown : "";
+        }
+        if (keep.equals("...")) keep = got;
+
+        stopReveal();
+        showCompressing(false);
+        pendingResponse = false;
+        if (messages.size() > 0) {
+            if (keep.trim().length() == 0) {
+                messages.remove(messages.size() - 1);
+            } else {
+                messages.set(messages.size() - 1, new GeminiApi.Message("model", keep));
+            }
+            adapter.notifyDataSetChanged();
+        }
+        btnAttach.setEnabled(true);
+        saveNewMessages();
+        PendingState.clearResponse();
+        updateSendButton();
+    }
+
     // Запускает запрос к модели по текущей истории (последнее сообщение - от пользователя)
     private void startModelRequest(String apiKey, boolean isRu) {
+        stopSpeech();
         messages.add(new GeminiApi.Message("model", "..."));
         pendingResponse = true;
         adapter.notifyDataSetChanged();
         // Отправка сообщения: всегда прокручиваем вниз
         scrollChatToBottom();
 
-        btnSend.setEnabled(false);
         btnAttach.setEnabled(false);
 
         PendingState.pending = true;
@@ -827,17 +1140,21 @@ public class MainActivity extends Activity implements PendingState.Listener {
         PendingState.finalImageBase64 = null;
         PendingState.error = null;
         PendingState.pendingModel = null;
+        PendingState.request = null;
         stopReveal();
 
         // Контекст (обрезка / сжатие) собирается в buildContextAndSend, запрос уходит в dispatchRequest
         buildContextAndSend(apiKey, isRu);
+
+        // Запрос запущен (PendingState.request задан): кнопка отправки становится «Стоп»
+        updateSendButton();
     }
 
     private void dispatchRequest(String apiKey, boolean isRu, String systemPrompt,
                                  List<GeminiApi.Message> historyCopy) {
         AppLog.d("UI", "Sending text message, history=" + historyCopy.size()
             + " of " + (messages.size() - 1) + ", summary=" + (ctxSummaryCount > 0 && prefs.isCompressContext()));
-        geminiApi.sendMessage(
+        PendingState.request = geminiApi.sendMessage(
             apiKey,
             prefs.getModel(),
             prefs.getTemperature(),
@@ -909,7 +1226,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         request.add(new GeminiApi.Message("user", sb.toString()));
 
         // Потоковый запрос: прогрессбар движется по мере написания пересказа. Промпт сжатия - в системной инструкции, без поиска
-        geminiApi.sendMessage(apiKey, prefs.getModel(), 0.3f, prefs.getCompressPrompt(), request,
+        PendingState.request = geminiApi.sendMessage(apiKey, prefs.getModel(), 0.3f, prefs.getCompressPrompt(), request,
             true, false, "", new GeminiApi.StreamCallback() {
                 @Override
                 public void onPartial(final String textSoFar) {
@@ -945,6 +1262,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     private void onCompressionDone(String apiKey, boolean isRu, int cut, int h, String summary) {
         showCompressing(false);
+        if (!pendingResponse) return;   // ответ остановлен кнопкой «Стоп»
         if (prefs.isLogCompress()) {
             AppLog.i("Compress", "Model reply (" + (summary != null ? summary.length() : 0) + " chars):\n"
                 + (summary != null ? summary : "(null)"));
@@ -965,6 +1283,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     // Ошибка сжатия не блокирует ответ: отправляем несжатые сообщения (следующая отправка попробует снова)
     private void onCompressionFailed(String apiKey, boolean isRu, int h, String error) {
         showCompressing(false);
+        if (!pendingResponse) return;   // ответ остановлен кнопкой «Стоп»
         AppLog.w("UI", "Context compression failed: " + error);
         Toast.makeText(this, isRu
             ? "Не удалось сжать диалог, сообщения отправлены как есть"
@@ -1293,9 +1612,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         messages.add(new GeminiApi.Message("model", isRu ? "Генерация картинки..." : "Generating image..."));
         adapter.notifyDataSetChanged();
         lvChat.setSelection(messages.size() - 1);
-        btnSend.setEnabled(false);
         btnAttach.setEnabled(false);
         pendingResponse = true;
+        PendingState.request = null;   // картинку останавливать нельзя: кнопка отправки просто выключается
+        updateSendButton();
 
         PendingState.pending = true;
         PendingState.partialText = "";
@@ -1652,6 +1972,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
             Toast.makeText(this, ru ? "Дождитесь ответа" : "Wait for the response", Toast.LENGTH_SHORT).show();
             return;
         }
+        stopSpeech();
         saveNewMessages();
         exitEditMode(false);
         resetSummaryState();

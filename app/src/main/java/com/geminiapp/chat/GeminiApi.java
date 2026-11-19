@@ -63,6 +63,45 @@ public class GeminiApi {
         void onPartial(String textSoFar);
     }
 
+    /**
+     * Запущенный запрос к модели, который можно остановить (кнопка «Стоп»).
+     * После возврата из cancel() колбэки этого запроса больше не вызываются.
+     */
+    public static final class Request {
+        private volatile boolean cancelled = false;
+        private volatile Http.Response conn = null;
+
+        public boolean isCancelled() { return cancelled; }
+
+        public void cancel() {
+            synchronized (this) { cancelled = true; }
+            final Http.Response c = conn;
+            if (c != null) {
+                // Соединение закрываем в отдельном потоке: на главном потоке сетевые операции запрещены.
+                // Закрытие обрывает чтение в потоке запроса, и он тихо завершается.
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        c.close();
+                    }
+                }).start();
+            }
+        }
+
+        // Колбэки вызываются под замком, чтобы после cancel() ни один из них не начался
+        void partial(StreamCallback cb, String text) {
+            synchronized (this) { if (!cancelled) cb.onPartial(text); }
+        }
+
+        void success(Callback cb, String text) {
+            synchronized (this) { if (!cancelled) cb.onSuccess(text); }
+        }
+
+        void error(Callback cb, String error) {
+            synchronized (this) { if (!cancelled) cb.onError(error); }
+        }
+    }
+
     public interface ModelsCallback {
         void onSuccess(java.util.List<String> models);
         void onError(String error);
@@ -246,10 +285,11 @@ public class GeminiApi {
         return sb.toString();
     }
 
-    public void sendMessage(final String apiKey, final String model, final float temperature,
-                            final String systemPrompt, final List<Message> history,
-                            final boolean stream, final boolean search, final String sourcesTitle,
-                            final Callback callback) {
+    public Request sendMessage(final String apiKey, final String model, final float temperature,
+                               final String systemPrompt, final List<Message> history,
+                               final boolean stream, final boolean search, final String sourcesTitle,
+                               final Callback callback) {
+        final Request req = new Request();
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -309,11 +349,14 @@ public class GeminiApi {
                         new String[]{"Content-Type", "application/json; charset=utf-8", "x-goog-api-key", apiKey,
                             "Accept-Encoding", "identity"},
                         body.toString().getBytes("UTF-8"), 20000, 60000);
+                    // Сначала запоминаем соединение, потом проверяем отмену: так cancel() не промахнётся
+                    req.conn = connection;
+                    if (req.isCancelled()) return;
                     int responseCode = connection.code;
                     InputStream is = connection.in;
 
                     if (is == null) {
-                        callback.onError("HTTP " + responseCode);
+                        req.error(callback, "HTTP " + responseCode);
                         return;
                     }
 
@@ -323,7 +366,7 @@ public class GeminiApi {
                         StringBuilder acc = new StringBuilder();
                         List<String[]> sources = new ArrayList<String[]>();
                         String sline;
-                        while ((sline = sbr.readLine()) != null) {
+                        while (!req.isCancelled() && (sline = sbr.readLine()) != null) {
                             if (!sline.startsWith("data:")) continue;
                             String payload = sline.substring(5).trim();
                             if (payload.length() == 0 || payload.equals("[DONE]")) continue;
@@ -342,12 +385,13 @@ public class GeminiApi {
                                     String t = pp.optString("text", "");
                                     if (t.length() > 0) { acc.append(t); changed = true; }
                                 }
-                                if (changed) ((StreamCallback) callback).onPartial(acc.toString());
+                                if (changed) req.partial((StreamCallback) callback, acc.toString());
                             } catch (JSONException ignored) {}
                         }
                         sbr.close();
-                        if (acc.length() == 0) callback.onError("Empty response");
-                        else callback.onSuccess(acc.toString() + formatSources(sources, sourcesTitle));
+                        if (req.isCancelled()) return;
+                        if (acc.length() == 0) req.error(callback, "Empty response");
+                        else req.success(callback, acc.toString() + formatSources(sources, sourcesTitle));
                         return;
                     }
 
@@ -363,9 +407,9 @@ public class GeminiApi {
 
                     if (responseCode < 200 || responseCode >= 300) {
                         try {
-                            callback.onError(formatHttpError(responseCode, responseBody));
+                            req.error(callback, formatHttpError(responseCode, responseBody));
                         } catch (Exception e) {
-                            callback.onError("HTTP " + responseCode);
+                            req.error(callback, "HTTP " + responseCode);
                         }
                         return;
                     }
@@ -390,21 +434,24 @@ public class GeminiApi {
                         collectSources(cand0.optJSONObject("groundingMetadata"), srcList);
                     }
                     if (txtBuilder.length() == 0) {
-                        callback.onError("Empty response");
+                        req.error(callback, "Empty response");
                         return;
                     }
                     String text = txtBuilder.toString() + formatSources(srcList, sourcesTitle);
 
-                    callback.onSuccess(text);
+                    req.success(callback, text);
                 } catch (Throwable t) {
+                    // Запрос остановлен кнопкой «Стоп»: обрыв соединения - не ошибка
+                    if (req.isCancelled()) return;
                     AppLog.e("API", "sendMessage failed", t);
                     String errLog = t.getMessage();
                     if (errLog == null) errLog = t.getClass().getSimpleName();
-                    callback.onError(errLog);
+                    req.error(callback, errLog);
                 } finally {
                     if (connection != null) connection.disconnect();
                 }
             }
         }).start();
+        return req;
     }
 }

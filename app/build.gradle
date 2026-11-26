@@ -16,7 +16,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.geminiapp.chat"
+        applicationId "com.ialwaysloveyou.oldgemai"
         minSdkVersion 1
         targetSdkVersion 31
         versionCode 10

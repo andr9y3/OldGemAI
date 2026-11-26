@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

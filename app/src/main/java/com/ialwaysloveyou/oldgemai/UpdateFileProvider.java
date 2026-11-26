@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -11,7 +11,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 
 /**
- * Отдаёт установщику скачанный APK по адресу content://com.geminiapp.chat.updates/update.apk.
+ * Отдаёт установщику скачанный APK по адресу content://com.ialwaysloveyou.oldgemai.updates/update.apk.
  * Нужен с Android 7: прямой доступ к файлу через file:// запрещён. Ничего другого провайдер не отдаёт.
  * Без androidx: FileProvider из support-библиотеки не используется.
  */

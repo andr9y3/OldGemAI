@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.content.Context;
 import android.content.Intent;
@@ -172,24 +172,17 @@ public class ChatAdapter extends BaseAdapter {
         bubbleRow.setOrientation(LinearLayout.HORIZONTAL);
         bubbleRow.setGravity(isUser ? Gravity.RIGHT : Gravity.LEFT);
 
-        if (isUser && msg.imageBase64 != null) {
-            try {
-                byte[] bytes = Base64Compat.decode(msg.imageBase64);
-                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                if (bmp != null) {
-                    ImageView iv = new ImageView(context);
-                    iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                    iv.setImageBitmap(Bitmap.createScaledBitmap(bmp, dp(120), dp(120), true));
-                    iv.setPadding(dp(2), dp(2), dp(2), dp(2));
-                    iv.setBackgroundColor(0xFF444444);
-                    LinearLayout.LayoutParams ivp = new LinearLayout.LayoutParams(dp(120), dp(120));
-                    ivp.setMargins(0, 0, dp(6), 0);
-                    container.addView(iv, ivp);
-                }
-            } catch (Exception ignored) {}
+        // Вложения пользователя: картинки сеткой по 3 в ряд, файлы плитками под ними
+        boolean userHasAttachments = isUser && !msg.attachments.isEmpty();
+        if (userHasAttachments) {
+            addAttachmentViews(container, msg, position);
         }
 
         if (isUser) {
+            // Сообщение из одних вложений: пустой пузырь не рисуем
+            if (userHasAttachments && (msg.text == null || msg.text.trim().length() == 0)) {
+                return container;
+            }
             TextView tv = new TextView(context);
             tv.setText(msg.text);
             tv.setTextSize(15);
@@ -1031,6 +1024,79 @@ public class ChatAdapter extends BaseAdapter {
             }
         }
         return null;
+    }
+
+    // Вложения в сообщении пользователя: картинки сеткой (по 3 в ряд, прижаты вправо), затем плитки файлов.
+    // Долгое нажатие на любом вложении открывает то же меню, что и на пузыре («Изменить» / «Копировать»).
+    private void addAttachmentViews(LinearLayout container, GeminiApi.Message msg, int position) {
+        int wrap = ViewGroup.LayoutParams.WRAP_CONTENT;
+        int tile = dp(88);
+        int gap = dp(2);
+        LinearLayout row = null;
+        int inRow = 0;
+        List<Attachment> files = new ArrayList<Attachment>();
+
+        for (int i = 0; i < msg.attachments.size(); i++) {
+            Attachment a = msg.attachments.get(i);
+            if (a.kind != Attachment.KIND_IMAGE) {
+                files.add(a);
+                continue;
+            }
+            if (row == null || inRow >= 3) {
+                row = new LinearLayout(context);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                container.addView(row, new LinearLayout.LayoutParams(wrap, wrap));
+                inRow = 0;
+            }
+            ImageView iv = new ImageView(context);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            Bitmap thumb = a.getThumb();
+            if (thumb != null) iv.setImageBitmap(thumb);
+            iv.setBackgroundColor(0xFF444444);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(tile, tile);
+            lp.setMargins(gap, gap, gap, gap);
+            row.addView(iv, lp);
+            attachUserMessageMenu(iv, msg.text, position);
+            inRow++;
+        }
+
+        for (int i = 0; i < files.size(); i++) {
+            View chip = makeFileChip(files.get(i));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(wrap, wrap);
+            lp.setMargins(gap, gap, gap, gap);
+            container.addView(chip, lp);
+            attachUserMessageMenu(chip, msg.text, position);
+        }
+    }
+
+    // Плитка файла: расширение в синем прямоугольнике и имя файла
+    private View makeFileChip(Attachment a) {
+        int wrap = ViewGroup.LayoutParams.WRAP_CONTENT;
+        LinearLayout chip = new LinearLayout(context);
+        chip.setOrientation(LinearLayout.HORIZONTAL);
+        chip.setGravity(Gravity.CENTER_VERTICAL);
+        chip.setBackgroundColor(0xFF444444);
+        chip.setPadding(dp(6), dp(6), dp(10), dp(6));
+
+        TextView ext = new TextView(context);
+        ext.setText(a.extLabel());
+        ext.setTextSize(11);
+        ext.setTypeface(Typeface.DEFAULT_BOLD);
+        ext.setTextColor(0xFFFFFFFF);
+        ext.setBackgroundColor(0xFF1A73E8);
+        ext.setPadding(dp(6), dp(4), dp(6), dp(4));
+        chip.addView(ext, new LinearLayout.LayoutParams(wrap, wrap));
+
+        TextView nm = new TextView(context);
+        nm.setText(a.name);
+        nm.setTextSize(13);
+        nm.setTextColor(0xFFFFFFFF);
+        nm.setSingleLine(true);
+        nm.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        nm.setMaxWidth(dp(200));
+        nm.setPadding(dp(8), 0, 0, 0);
+        chip.addView(nm, new LinearLayout.LayoutParams(wrap, wrap));
+        return chip;
     }
 
     // Долгое нажатие на сообщении пользователя: меню «Изменить» / «Копировать» вместо немедленного копирования

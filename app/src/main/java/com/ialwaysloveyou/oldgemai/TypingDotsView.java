@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.content.Context;
 import android.graphics.Canvas;

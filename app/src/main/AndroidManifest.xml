@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.geminiapp.chat">
+    package="com.ialwaysloveyou.oldgemai">
 
     <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="31" />
 
@@ -42,14 +42,14 @@
         <!-- Отдаёт установщику скачанный APK обновления (Android 7+) -->
         <provider
             android:name=".UpdateFileProvider"
-            android:authorities="com.geminiapp.chat.updates"
+            android:authorities="com.ialwaysloveyou.oldgemai.updates"
             android:exported="false"
             android:grantUriPermissions="true" />
 
         <!-- Отдаёт наружу экспортированный JSON с чатами (для шаринга/сохранения) -->
         <provider
             android:name=".ExportFileProvider"
-            android:authorities="com.geminiapp.chat.export"
+            android:authorities="com.ialwaysloveyou.oldgemai.export"
             android:exported="false"
             android:grantUriPermissions="true" />
 

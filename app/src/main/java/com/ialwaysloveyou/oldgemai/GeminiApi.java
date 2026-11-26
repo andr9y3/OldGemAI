@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -25,9 +25,12 @@ public class GeminiApi {
     public static class Message {
         public final String role;
         public final String text;
+        // Только для картинок, сгенерированных моделью (isGeneratedImage = true)
         public final String imageBase64;
         public final String imageMimeType;
         public final boolean isGeneratedImage;
+        // Вложения пользователя: несколько картинок, PDF и текстовые файлы (никогда не null)
+        public final List<Attachment> attachments;
 
         public Message(String role, String text) {
             this.role = role;
@@ -35,14 +38,16 @@ public class GeminiApi {
             this.imageBase64 = null;
             this.imageMimeType = null;
             this.isGeneratedImage = false;
+            this.attachments = new ArrayList<Attachment>();
         }
 
-        public Message(String role, String text, String imageBase64, String imageMimeType) {
+        public Message(String role, String text, List<Attachment> attachments) {
             this.role = role;
             this.text = text;
-            this.imageBase64 = imageBase64;
-            this.imageMimeType = imageMimeType;
+            this.imageBase64 = null;
+            this.imageMimeType = null;
             this.isGeneratedImage = false;
+            this.attachments = attachments != null ? attachments : new ArrayList<Attachment>();
         }
 
         public Message(String role, String text, String imageBase64, boolean isGeneratedImage) {
@@ -51,6 +56,7 @@ public class GeminiApi {
             this.imageBase64 = imageBase64;
             this.imageMimeType = "image/png";
             this.isGeneratedImage = isGeneratedImage;
+            this.attachments = new ArrayList<Attachment>();
         }
     }
 
@@ -320,6 +326,40 @@ public class GeminiApi {
                             inlineData.put("data", msg.imageBase64);
                             imgPart.put("inline_data", inlineData);
                             parts.put(imgPart);
+                        }
+                        // Вложения: картинки и PDF уходят как inline_data, текстовые файлы - текстом
+                        for (int ai = 0; ai < msg.attachments.size(); ai++) {
+                            Attachment att = msg.attachments.get(ai);
+                            if (att.kind == Attachment.KIND_TEXT) {
+                                String fileText = att.getText();
+                                JSONObject filePart = new JSONObject();
+                                if (fileText == null) {
+                                    filePart.put("text", "[Attached file unavailable: " + att.name + "]");
+                                } else {
+                                    filePart.put("text", "[Attached file: " + att.name + "]\n" + fileText
+                                        + "\n[End of file: " + att.name + "]");
+                                }
+                                parts.put(filePart);
+                                continue;
+                            }
+                            String attData = att.getBase64();
+                            if (attData == null) {
+                                JSONObject missPart = new JSONObject();
+                                missPart.put("text", "[Attachment unavailable: " + att.name + "]");
+                                parts.put(missPart);
+                                continue;
+                            }
+                            if (att.kind == Attachment.KIND_PDF) {
+                                JSONObject labelPart = new JSONObject();
+                                labelPart.put("text", "[Attached PDF: " + att.name + "]");
+                                parts.put(labelPart);
+                            }
+                            JSONObject mediaPart = new JSONObject();
+                            JSONObject mediaData = new JSONObject();
+                            mediaData.put("mime_type", att.mime);
+                            mediaData.put("data", attData);
+                            mediaPart.put("inline_data", mediaData);
+                            parts.put(mediaPart);
                         }
                         JSONObject part = new JSONObject();
                         part.put("text", msg.text.length() == 0 ? " " : msg.text);

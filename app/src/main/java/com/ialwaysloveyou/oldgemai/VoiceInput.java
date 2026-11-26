@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;

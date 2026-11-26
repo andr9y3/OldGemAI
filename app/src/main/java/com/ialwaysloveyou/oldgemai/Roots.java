@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 /**
  * Корневые сертификаты, которым доверяет собственный TLS-клиент (LegacyTls).

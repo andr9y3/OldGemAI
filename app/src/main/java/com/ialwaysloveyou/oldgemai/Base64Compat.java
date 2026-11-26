@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 /**
  * Замена android.util.Base64 (появился только в API 8).

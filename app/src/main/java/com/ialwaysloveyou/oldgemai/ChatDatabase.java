@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -6,6 +6,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -15,7 +16,8 @@ import java.util.Locale;
 public class ChatDatabase extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "oldgemai_chats.db";
-    private static final int DB_VERSION = 1;
+    // 2: добавлена колонка attachments_json (несколько картинок и файлы в сообщении)
+    private static final int DB_VERSION = 2;
 
     private static final String TABLE_CHATS = "chats";
     private static final String TABLE_MESSAGES = "messages";
@@ -35,9 +37,39 @@ public class ChatDatabase extends SQLiteOpenHelper {
     private static final String COL_MSG_IMAGE_MIME = "image_mime_type";
     private static final String COL_MSG_IS_GENERATED = "is_generated_image";
     private static final String COL_MSG_CREATED = "created_at";
+    // JSON-массив вложений: [{"k":тип,"n":имя,"m":mime,"f":имя файла с данными}]
+    private static final String COL_MSG_ATTACHMENTS = "attachments_json";
+
+    private final Context appContext;
 
     public ChatDatabase(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
+        Context app = context.getApplicationContext();
+        this.appContext = app != null ? app : context;
+    }
+
+    // Каталог файлов вложений (приватное хранилище приложения)
+    private File attDir() {
+        return new File(appContext.getFilesDir(), "att");
+    }
+
+    // Удаляет файлы вложений тех сообщений, что подходят под условие (вызывать ДО удаления строк)
+    private void deleteAttachmentFiles(String where, String[] args) {
+        try {
+            SQLiteDatabase db = getReadableDatabase();
+            Cursor c = db.rawQuery("SELECT " + COL_MSG_ATTACHMENTS + " FROM " + TABLE_MESSAGES
+                    + " WHERE " + COL_MSG_ATTACHMENTS + " IS NOT NULL AND " + where, args);
+            try {
+                File dir = attDir();
+                while (c.moveToNext()) {
+                    Attachment.deleteFilesInJson(c.getString(0), dir);
+                }
+            } finally {
+                c.close();
+            }
+        } catch (Throwable t) {
+            AppLog.w("DB", "Delete attachment files failed: " + t);
+        }
     }
 
     @Override
@@ -58,6 +90,7 @@ public class ChatDatabase extends SQLiteOpenHelper {
                 COL_MSG_IMAGE_MIME + " TEXT," +
                 COL_MSG_IS_GENERATED + " INTEGER," +
                 COL_MSG_CREATED + " INTEGER," +
+                COL_MSG_ATTACHMENTS + " TEXT," +
                 "FOREIGN KEY(" + COL_MSG_CHAT_ID + ") REFERENCES " + TABLE_CHATS + "(" + COL_CHAT_ID + ")" +
                 ")";
 
@@ -67,9 +100,10 @@ public class ChatDatabase extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_MESSAGES);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_CHATS);
-        onCreate(db);
+        // Версия 2: новая колонка для вложений. Чаты не удаляются
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE " + TABLE_MESSAGES + " ADD COLUMN " + COL_MSG_ATTACHMENTS + " TEXT");
+        }
     }
 
     public long createChat(String title) {
@@ -95,6 +129,8 @@ public class ChatDatabase extends SQLiteOpenHelper {
         values.put(COL_MSG_IMAGE_BASE64, msg.imageBase64);
         values.put(COL_MSG_IMAGE_MIME, msg.imageMimeType);
         values.put(COL_MSG_IS_GENERATED, msg.isGeneratedImage ? 1 : 0);
+        values.put(COL_MSG_ATTACHMENTS, msg.attachments.isEmpty()
+                ? (String) null : Attachment.toJson(msg.attachments, attDir()));
         values.put(COL_MSG_CREATED, now);
 
         db.insert(TABLE_MESSAGES, null, values);
@@ -108,6 +144,8 @@ public class ChatDatabase extends SQLiteOpenHelper {
     /** Удаляет последнее (по id) сообщение чата. Нужно для перегенерации ответа. */
     public synchronized void deleteLastMessage(long chatId) {
         SQLiteDatabase db = getWritableDatabase();
+        deleteAttachmentFiles(COL_MSG_ID + "=(SELECT MAX(" + COL_MSG_ID + ") FROM " + TABLE_MESSAGES
+                + " WHERE " + COL_MSG_CHAT_ID + "=?)", new String[]{String.valueOf(chatId)});
         db.delete(TABLE_MESSAGES,
                 COL_MSG_ID + "=(SELECT MAX(" + COL_MSG_ID + ") FROM " + TABLE_MESSAGES
                         + " WHERE " + COL_MSG_CHAT_ID + "=?)",
@@ -239,7 +277,7 @@ public class ChatDatabase extends SQLiteOpenHelper {
 
         Cursor cursor = db.query(TABLE_MESSAGES,
                 new String[]{COL_MSG_ROLE, COL_MSG_TEXT, COL_MSG_IMAGE_BASE64,
-                        COL_MSG_IMAGE_MIME, COL_MSG_IS_GENERATED},
+                        COL_MSG_IMAGE_MIME, COL_MSG_IS_GENERATED, COL_MSG_ATTACHMENTS},
                 COL_MSG_CHAT_ID + "=?", new String[]{String.valueOf(chatId)},
                 null, null, COL_MSG_ID + " ASC");
 
@@ -249,13 +287,19 @@ public class ChatDatabase extends SQLiteOpenHelper {
             String imageB64 = cursor.getString(cursor.getColumnIndex(COL_MSG_IMAGE_BASE64));
             String imageMime = cursor.getString(cursor.getColumnIndex(COL_MSG_IMAGE_MIME));
             int isGen = cursor.getInt(cursor.getColumnIndex(COL_MSG_IS_GENERATED));
+            String attJson = cursor.getString(cursor.getColumnIndex(COL_MSG_ATTACHMENTS));
 
             GeminiApi.Message msg;
-            if (imageB64 != null && imageB64.length() > 0) {
+            if (attJson != null && attJson.length() > 0) {
+                msg = new GeminiApi.Message(role, text, Attachment.fromJson(attJson, attDir()));
+            } else if (imageB64 != null && imageB64.length() > 0) {
                 if (isGen == 1) {
                     msg = new GeminiApi.Message(role, text, imageB64, true);
                 } else {
-                    msg = new GeminiApi.Message(role, text, imageB64, imageMime);
+                    // Сообщения, сохранённые до появления нескольких вложений: одна картинка в колонке image_base64
+                    List<Attachment> legacy = new ArrayList<Attachment>();
+                    legacy.add(Attachment.fromLegacyImage(imageB64, imageMime));
+                    msg = new GeminiApi.Message(role, text, legacy);
                 }
             } else {
                 msg = new GeminiApi.Message(role, text);
@@ -270,6 +314,7 @@ public class ChatDatabase extends SQLiteOpenHelper {
 
     public void deleteChat(long chatId) {
         SQLiteDatabase db = getWritableDatabase();
+        deleteAttachmentFiles(COL_MSG_CHAT_ID + "=?", new String[]{String.valueOf(chatId)});
         db.delete(TABLE_MESSAGES, COL_MSG_CHAT_ID + "=?", new String[]{String.valueOf(chatId)});
         db.delete(TABLE_CHATS, COL_CHAT_ID + "=?", new String[]{String.valueOf(chatId)});
     }

@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.app.Activity;
 import android.app.Dialog;
@@ -48,7 +48,7 @@ public final class Updater {
     /** Куда сохраняется скачанный APK (во внутреннем хранилище приложения). */
     static final String UPDATE_FILE = "update.apk";
     /** Должен совпадать с android:authorities у UpdateFileProvider в манифесте. */
-    static final String AUTHORITY = "com.geminiapp.chat.updates";
+    static final String AUTHORITY = "com.ialwaysloveyou.oldgemai.updates";
     static final String APK_MIME = "application/vnd.android.package-archive";
 
     private static final String LATEST_URL = "https://github.com/" + REPO + "/releases/latest";

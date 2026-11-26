@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -12,7 +12,7 @@ import java.io.FileNotFoundException;
 
 /**
  * Отдаёт наружу (для шаринга/сохранения) файл экспорта чатов по адресу
- * content://com.geminiapp.chat.export/chats_export.json. Нужен с Android 7: прямой доступ
+ * content://com.ialwaysloveyou.oldgemai.export/chats_export.json. Нужен с Android 7: прямой доступ
  * к файлу через file:// при передаче другому приложению запрещён. Ничего другого не отдаёт.
  * Без androidx: FileProvider из support-библиотеки не используется (см. UpdateFileProvider).
  */

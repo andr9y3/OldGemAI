@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import org.spongycastle.asn1.ASN1Encoding;
 import org.spongycastle.asn1.DERIA5String;

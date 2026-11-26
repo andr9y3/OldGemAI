@@ -5,7 +5,7 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 ## Features
 
 - **Text chat** with full conversation history sent on every request
-- **Image input** - attach a photo from your gallery and ask questions about it
+- **Attachments** - attach up to 10 files to one message: several images at once, PDF documents and text files (plain text, code, CSV, JSON, logs and so on). Gemini gets all of them in one request, so you can ask questions about the whole set. A preview with a remove button is shown above the input field
 - **Image generation** - type `/image <prompt>` to generate an image with Gemini; the app loads the list of image models and lets you pick one in a dialog (see below)
 - **Streaming responses** - the answer is typed out gradually as Gemini generates it; can be turned off in Settings to get the full answer at once (the old behavior)
 - **Stop button** - while a text answer is being generated, the send button turns into a Stop button (square icon); tap it to cut the answer off, the part that is already written stays in the chat and in the history
@@ -14,10 +14,10 @@ A lightweight Android chat app for talking with Google Gemini AI. Built in pure 
 - **Chat history** - chats are saved to a local SQLite database; open, rename or delete them from the History screen
 - **Copy and edit model answers** - under every text answer there are Copy and Edit icons next to the Regenerate icon (all icons are white); Edit opens a window where you can change the answer text, the corrected answer is saved to the chat history
 - **Your messages** - hold one of your own messages to get a menu with Edit and Copy
-- **Compact main screen** - one menu button (three bars) opens a screen with Settings, New chat, Back to chat and the list of saved chats; the single + button next to the input field opens a bottom panel with Photo, Image and the Search checkbox
+- **Compact main screen** - one menu button (three bars) opens a screen with Settings, New chat, Back to chat and the list of saved chats; the single + button next to the input field opens a bottom panel with Photo, File, Image and the Search checkbox
 - **Markdown in answers** - headings, bullet lists, quotes, tables, horizontal rules, **bold**, *italic*, ~~strikethrough~~, `inline code` and code blocks (black background) are rendered in the model's replies; `[text](url)` links and bare http(s) addresses are blue and clickable; `![alt](https://...)` images are downloaded and shown inline (tap an image to open it in the browser; if the download fails, a link is shown instead)
 - **Clear error messages** - API errors (quota, invalid key, overloaded server, timeout and so on) are shown in a dialog with a short explanation and the original server message
-- **State survives screen rotation** - the chat, the typed text, the attached image and a response that is still being generated are kept when the activity is recreated
+- **State survives screen rotation** - the chat, the typed text, the attached files and a response that is still being generated are kept when the activity is recreated
 - **Google Search grounding** - optional Search checkbox in Tools: the model can search the web and the answer ends with a numbered list of sources
 - **Model selection** - loads the list of available Gemini models directly from the API so you always get the latest options
 - **Configurable temperature** - adjust creativity from 0.0 to 2.0 via a slider
@@ -92,7 +92,13 @@ On first launch the app asks you to choose a language, then shows a page about a
 
 **Sending a message** - type in the input field and tap Send.
 
-**Attaching an image** - tap the + button, choose Photo in the bottom panel and pick a photo from your gallery. The image is scaled to a maximum of 512 px on the long side and compressed (quality 60) before sending. A preview appears above the input field; tap the cross to remove it.
+**Attaching images and files** - tap the + button and choose Photo (images from the gallery) or File (PDF, text, code) in the bottom panel. On Android 4.3 and newer you can tick several files in the system picker at once; on older versions files are picked one at a time and each new one is added to the ones already attached. One message holds up to 10 attachments (images, PDFs and text files can be mixed); if you pick more, the extra ones are skipped and a message tells you about it. Previews appear above the input field: a thumbnail for an image, the extension and the name for a file, and `...` while a file is still being read. Tap the cross on a tile to remove that attachment. What happens to each type:
+- Images are scaled to a maximum of 512 px on the long side and compressed (quality 60) before sending.
+- PDF files are sent to Gemini as they are. The size limit depends on the memory of the device (from 1 to 8 MB).
+- Text files up to 1 MB are converted to UTF-8 (old windows-1251 files are recognized too) and sent to the model as plain text. Supported types include txt, md, csv, tsv, json, xml, html, css, svg, yaml, ini, log, srt and source code (java, kt, py, js, ts, c, cpp, cs, go, rs, php, sh, sql, gradle and others).
+- Other formats (docx, xlsx, archives, audio, video and so on), empty files and binary files are refused with a message.
+
+Attached files are shown in your message in the chat (images as a grid, other files as tiles under them) and are saved with the chat history.
 
 **Generating an image** - type `/image <description>` and tap Send. The app loads the model list from the API, keeps the models with `image` in the name and shows them in a selection dialog. The dialog warns that on the Free plan no model can generate images, and has a "Remember choice" checkbox at the bottom: if it is ticked, the picked model is saved and the next `/image` runs without asking. After you pick a model, the generated image is displayed inline in the chat. The Gemini API does not report whether a model is free, so if the chosen model does not work on your key (for example, no free quota), the error is shown and you can try another model.
 
@@ -108,7 +114,7 @@ On first launch the app asks you to choose a language, then shows a page about a
 - Turn the waiting animation (three animated dots shown before the answer starts) on or off
 - Turn auto-update on or off, or check for updates right now with the "Check for updates" button
 
-**Tools** - the + button next to the input field opens a bottom panel with the Photo button (pick a picture from the gallery), the Image button (generates an image from the text typed in the input field, same as `/image`) and the Search checkbox (Google Search). A star on the + button (+*) means that Search is on.
+**Tools** - the + button next to the input field opens a bottom panel with the Photo button (pick one or several pictures from the gallery), the File button (pick PDF, text or code files), the Image button (generates an image from the text typed in the input field, same as `/image`) and the Search checkbox (Google Search). A star on the + button (+*) means that Search is on.
 
 **Streaming** - by default the answer appears gradually while Gemini is writing it. To get the full answer at once, as in earlier versions, turn off the streaming checkbox in Settings and tap Save.
 
@@ -131,8 +137,8 @@ On first launch the app asks you to choose a language, then shows a page about a
 ## Project Structure
 
 ```
-app/src/main/java/com/geminiapp/chat/
-├── MainActivity.java          - chat screen, image picker, message list, error dialogs
+app/src/main/java/com/ialwaysloveyou/oldgemai/
+├── MainActivity.java          - chat screen, attachment picker and preview, message list, error dialogs
 ├── GeminiApi.java             - all API calls (chat, image gen, model list)
 ├── ChatAdapter.java           - ListView adapter for chat bubbles, Markdown rendering (text, code, links, tables, inline images with a small in-memory cache), icons under answers (regenerate, copy, edit), menu on long press for your own messages
 ├── ChatDatabase.java          - SQLite storage for chats and messages
@@ -144,10 +150,13 @@ app/src/main/java/com/geminiapp/chat/
 ├── Updater.java               - auto-update: daily check of the latest GitHub release, update window, APK download with progress, install
 ├── UpdateFileProvider.java    - hands the downloaded APK to the system installer on Android 7+ (no androidx FileProvider)
 ├── Prefs.java                 - SharedPreferences wrapper
-├── PendingState.java          - static state that keeps a running request, input text and attached image across activity recreation
+├── PendingState.java          - static state that keeps a running request, input text and attached files across activity recreation
 ├── VoiceInput.java            - voice input through the system speech recognition window (RecognizerIntent), with a check of the Android version before it starts
 ├── Speaker.java               - read-aloud through the system text-to-speech engine (TextToSpeech), Markdown cleaning, splitting long text, Android version check
 ├── Base64Compat.java          - Base64 encoder/decoder that works on any Android version (android.util.Base64 appeared only in API 8)
+├── Attachment.java            - one attachment of a message (image, PDF or text file): reading the picked file, scaling images, UTF-8 conversion of text, storing the data in files next to the database
+├── PickerCompat.java          - opens the system picker for images or files; multi-select on Android 4.3+, one by one on older versions
+├── PickerClip.java            - reads the list of picked files from ClipData (Android 4.1+), kept in a separate class so old versions never load it
 ├── TypingDotsView.java        - animated three dots shown while the answer has not started yet (drawn by hand, works on any Android version)
 ├── Tls12SocketFactory.java    - turns on system TLS 1.2 on Android 4.1-4.4
 ├── Http.java                  - one entry point for HTTPS requests: HttpURLConnection on API 16+, own HTTP/1.1 over LegacyTls on API 1-15
@@ -194,9 +203,9 @@ The file is saved in the app's private storage as `update.apk`. Before Android 7
 ## Privacy and Security
 
 - The API key is stored in the app's private SharedPreferences in plain text. Android Keystore is not available on the old Android versions this app targets, so encryption is not used; the app sandbox is the only protection.
-- Chats (including attached and generated images) are stored unencrypted in a local SQLite database inside the app's private storage.
+- Chats (including generated images) are stored unencrypted in a local SQLite database inside the app's private storage. Attached images, PDFs and text files are kept next to it as separate unencrypted files (`files/att`) in the same private storage.
 - Android backup is disabled (`allowBackup="false"`), so the key and chats are not copied to cloud or adb backups.
-- The whole conversation history, including images, is sent to Google's servers with every request.
+- The whole conversation history, including attached images, PDFs and text files, is sent to Google's servers with every request.
 - Voice input is handled by the speech recognition app of the phone (usually Google), not by OldGemAI: the app gets only the recognized text. Whether the sound is processed on the device or sent to a server depends on that app.
 - Read aloud is done by the text-to-speech engine of the phone: the answer text is passed to that engine. Whether the engine works offline or sends the text to a server depends on the engine.
 - If you use a rooted device, other apps with root access can read the key and chats.
@@ -234,6 +243,7 @@ Legend: ✅ works out of the box, 🟡 works through the built-in TLS 1.2 client
 | Copy and edit answers and your own messages | ✅ | ✅ | ✅ | ✅ |
 | Waiting animation, smooth text, icons | ✅ | ✅ | ✅ | ✅ |
 | Attaching a photo from the gallery | ✅ | ✅ | ✅ | ✅ |
+| Attaching several images, PDF and text files at once | untested | untested | untested | untested |
 | Text chat with Gemini (streaming, model list, Google Search) | 🟡⚠️ | 🟡 | ✅ | ✅ |
 | Image generation (`/image`, paid plan needed) | 🟡⚠️ | 🟡 | ✅ | ✅ |
 | Images inside answers (Markdown `![](https://...)`) | link only | link only | ✅ | ✅ |
@@ -245,6 +255,7 @@ Notes:
 - Everything that does not touch the network (launch, UI, history, settings, Markdown, copy/edit) is drawn and stored by the app itself, so it works the same on all supported versions, even offline.
 - Android 2.3 and newer used to reach Gemini through the system TLS; since version 2.0 all versions below 4.1 use the built-in TLS 1.2 client, which has not been tested on a real device yet.
 - Android 1.0-1.5 devices have only one screen density, so the app icon there may be the default one.
+- Picking several files in one go works from Android 4.3 (API 18). On older versions the system picker returns one file at a time, so each new file is added to the ones already attached (up to 10 per message). Attaching several files, PDFs and text files has not been tested on real devices yet.
 - On Android 1.5 (API 3) the icons under answers have no accessibility labels, because the system supports them only from API 4. The icons themselves work.
 - Voice input uses the system speech recognition window, so it works only if the phone has a speech recognition app (usually the Google app). On Android 1.0-1.1 (API 1-2) the app refuses to start recording and shows a message.
 - Read aloud uses the text-to-speech engine of the system, so it works only if the phone has one with the voice data of the needed language. On Android 1.0-1.5 (API 1-3) the app refuses to start it and shows a message.

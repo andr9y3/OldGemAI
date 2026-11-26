@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -37,8 +37,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private static final int REQUEST_PICK_IMAGE = 1001;
     private static final int REQUEST_HISTORY = 1002;
     private static final int REQUEST_VOICE = 1003;
-    private static final int MAX_IMAGE_SIZE = 512;
-    private static final int JPEG_QUALITY = 60;
+    private static final int REQUEST_PICK_FILE = 1004;
 
     // Быстрое переключение модели (вкладки рядом с кнопкой истории чатов)
     private static final String QUICK_MODEL_LITE = "gemini-flash-lite-latest";
@@ -64,11 +63,16 @@ public class MainActivity extends Activity implements PendingState.Listener {
     private TextView tvModelPro;
 
     private TextView tvNoKeyBanner;
-    private ImageView ivPreview;
-    private LinearLayout attachPreviewLayout;
+    // Полоска вложений над полем ввода (картинки, PDF, файлы). Сами вложения - в PendingState.pendingAttachments
+    private android.widget.ScrollView attachPreviewLayout;
+    private LinearLayout attachStrip;
+    private final Runnable attachRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            refreshAttachPreview();
+        }
+    };
 
-    private String pendingImageBase64 = null;
-    private String pendingImageMime = "image/jpeg";
     private long currentChatId = -1;
     private boolean pendingResponse = false;
 
@@ -79,8 +83,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
     // Режим изменения сообщения: индекс изменяемого сообщения (-1 - обычный режим)
     private int editingIndex = -1;
     private String editDraftText = "";
-    private String editDraftImage = null;
-    private String editDraftImageMime = "image/jpeg";
+    private List<Attachment> editDraftAttachments = new ArrayList<Attachment>();
     private LinearLayout editBar;
     private TextView tvEditing;
 
@@ -117,8 +120,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
         messages = new ArrayList<GeminiApi.Message>();
 
         currentChatId = PendingState.chatId;
-        pendingImageBase64 = PendingState.pendingImageBase64;
-        pendingImageMime = PendingState.pendingImageMime;
         pendingResponse = PendingState.pending;
 
         LinearLayout mainLayout = new LinearLayout(this);
@@ -190,24 +191,19 @@ public class MainActivity extends Activity implements PendingState.Listener {
                 LinearLayout.LayoutParams.FILL_PARENT, 0, 1.0f);
         mainLayout.addView(lvChat, listParams);
 
-        attachPreviewLayout = new LinearLayout(this);
-        attachPreviewLayout.setOrientation(LinearLayout.HORIZONTAL);
-        attachPreviewLayout.setPadding(10, 4, 10, 4);
+        // Полоска вложений: плитки рядами (миниатюры картинок и файлы), у каждой кнопка «✕».
+        // Высота ограничена двумя рядами, дальше прокручивается (ScrollView есть на любом Android)
+        attachPreviewLayout = new android.widget.ScrollView(this);
         attachPreviewLayout.setBackgroundColor(0xFF222222);
         attachPreviewLayout.setVisibility(View.GONE);
-
-        ivPreview = new ImageView(this);
-        ivPreview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(120), dp(120));
-        previewParams.setMargins(0, 0, 10, 0);
-        attachPreviewLayout.addView(ivPreview, previewParams);
-
-        Button btnRemoveImage = new Button(this);
-        btnRemoveImage.setText("✕");
-        attachPreviewLayout.addView(btnRemoveImage, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        mainLayout.addView(attachPreviewLayout);
+        attachStrip = new LinearLayout(this);
+        attachStrip.setOrientation(LinearLayout.VERTICAL);
+        attachStrip.setPadding(dp(6), dp(6), dp(6), dp(6));
+        attachPreviewLayout.addView(attachStrip, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.FILL_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        mainLayout.addView(attachPreviewLayout, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         editBar = new LinearLayout(this);
         editBar.setOrientation(LinearLayout.HORIZONTAL);
@@ -358,6 +354,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         if (savedInstanceState == null) Updater.checkDaily(this);
 
         PendingState.listener = this;
+        PendingState.attachRefresh = attachRefreshRunnable;
 
         btnSend.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -380,15 +377,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
             }
         });
 
-        btnRemoveImage.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pendingImageBase64 = null;
-                pendingImageMime = "image/jpeg";
-                PendingState.clearImage();
-                attachPreviewLayout.setVisibility(View.GONE);
-            }
-        });
     }
 
     private void restoreFromPendingState(Bundle savedInstanceState) {
@@ -399,19 +387,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
             etMessage.setText(PendingState.inputText);
         }
 
-        if (pendingImageBase64 != null && pendingImageBase64.length() > 0) {
-            try {
-                byte[] bytes = Base64Compat.decode(pendingImageBase64);
-                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                if (bmp != null) {
-                    ivPreview.setImageBitmap(bmp);
-                    attachPreviewLayout.setVisibility(View.VISIBLE);
-                }
-            } catch (Exception ignored) {
-                pendingImageBase64 = null;
-                PendingState.clearImage();
-            }
-        }
+        refreshAttachPreview();
 
         if (PendingState.error != null) {
             final String err = PendingState.error;
@@ -491,8 +467,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         PendingState.chatId = currentChatId;
-        PendingState.pendingImageBase64 = pendingImageBase64;
-        PendingState.pendingImageMime = pendingImageMime;
         PendingState.inputText = etMessage != null ? etMessage.getText().toString() : "";
         outState.putString("input_text", PendingState.inputText);
     }
@@ -504,6 +478,9 @@ public class MainActivity extends Activity implements PendingState.Listener {
         mainHandler.removeCallbacks(revealTick);
         if (PendingState.listener == this) {
             PendingState.listener = null;
+        }
+        if (PendingState.attachRefresh == attachRefreshRunnable) {
+            PendingState.attachRefresh = null;
         }
         if (isFinishing()) {
             PendingState.clearAll();
@@ -632,49 +609,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
             return;
         }
 
-        if (requestCode == REQUEST_PICK_IMAGE && resultCode == RESULT_OK && data != null) {
-            Uri uri = data.getData();
-            if (uri == null) return;
-            try {
-                InputStream is = getContentResolver().openInputStream(uri);
-                if (is == null) return;
-
-                String mime = getContentResolver().getType(uri);
-                if (mime == null) mime = "image/jpeg";
-                pendingImageMime = mime;
-
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inJustDecodeBounds = true;
-                BitmapFactory.decodeStream(is, null, opts);
-                is.close();
-
-                is = getContentResolver().openInputStream(uri);
-                opts.inJustDecodeBounds = false;
-                opts.inSampleSize = calculateInSampleSize(opts, MAX_IMAGE_SIZE, MAX_IMAGE_SIZE);
-                Bitmap original = BitmapFactory.decodeStream(is, null, opts);
-                is.close();
-
-                if (original == null) {
-                    Toast.makeText(this, (Prefs.LANG_RU.equals(prefs.getLanguage()) ? "Не удалось прочитать изображение" : "Could not read the image"), Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                Bitmap scaled = scaleBitmap(original);
-
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                Bitmap.CompressFormat fmt = mime.contains("png") ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG;
-                scaled.compress(fmt, JPEG_QUALITY, baos);
-                byte[] bytes = baos.toByteArray();
-                pendingImageBase64 = Base64Compat.encode(bytes);
-                PendingState.pendingImageBase64 = pendingImageBase64;
-                PendingState.pendingImageMime = pendingImageMime;
-
-                ivPreview.setImageBitmap(scaled);
-                attachPreviewLayout.setVisibility(View.VISIBLE);
-
-            } catch (Exception e) {
-                Toast.makeText(this, (Prefs.LANG_RU.equals(prefs.getLanguage()) ? "Ошибка: " : "Error: ") + e.getMessage(), Toast.LENGTH_SHORT).show();
-            }
+        // Выбор картинок или файлов (можно сразу несколько, с Android 4.3)
+        if ((requestCode == REQUEST_PICK_IMAGE || requestCode == REQUEST_PICK_FILE)
+                && resultCode == RESULT_OK && data != null) {
+            addAttachmentsFromUris(extractUris(data));
         }
     }
 
@@ -735,16 +673,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
         }
     }
 
-    private Bitmap scaleBitmap(Bitmap src) {
-        int w = src.getWidth();
-        int h = src.getHeight();
-        if (w <= MAX_IMAGE_SIZE && h <= MAX_IMAGE_SIZE) return src;
-        float scale = MAX_IMAGE_SIZE / (float) Math.max(w, h);
-        int nw = Math.round(w * scale);
-        int nh = Math.round(h * scale);
-        return Bitmap.createScaledBitmap(src, nw, nh, true);
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
@@ -756,8 +684,6 @@ public class MainActivity extends Activity implements PendingState.Listener {
         super.onPause();
         saveNewMessages();
         PendingState.chatId = currentChatId;
-        PendingState.pendingImageBase64 = pendingImageBase64;
-        PendingState.pendingImageMime = pendingImageMime;
         PendingState.inputText = etMessage != null ? etMessage.getText().toString() : "";
     }
 
@@ -821,9 +747,14 @@ public class MainActivity extends Activity implements PendingState.Listener {
 
     private void sendMessage() {
         final String text = etMessage.getText().toString().trim();
-        final boolean hasImage = pendingImageBase64 != null;
+        final boolean hasAttachments = !PendingState.pendingAttachments.isEmpty();
 
-        if (TextUtils.isEmpty(text) && !hasImage) return;
+        if (PendingState.attachLoading > 0) {
+            Toast.makeText(this, Prefs.LANG_RU.equals(prefs.getLanguage())
+                ? "Дождитесь загрузки вложений" : "Wait for the attachments to load", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (TextUtils.isEmpty(text) && !hasAttachments) return;
 
         final String apiKey = prefs.getApiKey();
         final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
@@ -924,22 +855,17 @@ public class MainActivity extends Activity implements PendingState.Listener {
             return;
         }
 
-        final String imageBase64 = pendingImageBase64;
-        final String imageMime = pendingImageMime;
-
         applyPendingEdit();
-        GeminiApi.Message userMsg = hasImage
-            ? new GeminiApi.Message("user", text, imageBase64, imageMime)
+        GeminiApi.Message userMsg = hasAttachments
+            ? new GeminiApi.Message("user", text, new ArrayList<Attachment>(PendingState.pendingAttachments))
             : new GeminiApi.Message("user", text);
         messages.add(userMsg);
         adapter.notifyDataSetChanged();
         lvChat.setSelection(messages.size() - 1);
         etMessage.setText("");
 
-        pendingImageBase64 = null;
-        pendingImageMime = "image/jpeg";
-        PendingState.clearImage();
-        attachPreviewLayout.setVisibility(View.GONE);
+        PendingState.clearAttachments();
+        refreshAttachPreview();
 
         startModelRequest(apiKey, isRu);
     }
@@ -1327,9 +1253,14 @@ public class MainActivity extends Activity implements PendingState.Listener {
         String t = m.text != null ? m.text.trim() : "";
         if (t.length() > 3000) t = t.substring(0, 3000) + "...";
         if (m.imageBase64 != null && m.imageBase64.length() > 0) {
-            String tag = m.isGeneratedImage
-                ? (isRu ? "[сгенерированная картинка]" : "[generated image]")
-                : (isRu ? "[изображение]" : "[image]");
+            String tag = isRu ? "[сгенерированная картинка]" : "[generated image]";
+            t = t.length() > 0 ? t + " " + tag : tag;
+        }
+        for (int i = 0; i < m.attachments.size(); i++) {
+            Attachment a = m.attachments.get(i);
+            String tag = a.kind == Attachment.KIND_IMAGE
+                ? (isRu ? "[изображение]" : "[image]")
+                : (isRu ? "[файл: " : "[file: ") + a.name + "]";
             t = t.length() > 0 ? t + " " + tag : tag;
         }
         return t;
@@ -1447,8 +1378,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         // Черновик сохраняем только при входе в режим (при переключении между сообщениями не затираем)
         if (editingIndex < 0) {
             editDraftText = etMessage.getText().toString();
-            editDraftImage = pendingImageBase64;
-            editDraftImageMime = pendingImageMime;
+            editDraftAttachments = new ArrayList<Attachment>(PendingState.pendingAttachments);
         }
         editingIndex = position;
         AppLog.d("UI", "Edit message #" + position + " of " + messages.size());
@@ -1456,11 +1386,13 @@ public class MainActivity extends Activity implements PendingState.Listener {
         etMessage.setText(m.text != null ? m.text : "");
         etMessage.setSelection(etMessage.getText().length());
 
-        if (m.imageBase64 != null && m.imageBase64.length() > 0 && !m.isGeneratedImage) {
-            setPendingImage(m.imageBase64, m.imageMimeType);
-        } else {
-            setPendingImage(null, null);
+        // Вложения возвращаются в полоску копиями: файлы старого сообщения удалятся при отправке новой версии
+        List<Attachment> copies = new ArrayList<Attachment>();
+        for (int i = 0; i < m.attachments.size(); i++) {
+            Attachment c = m.attachments.get(i).duplicate();
+            if (c != null) copies.add(c);
         }
+        setPendingAttachments(copies);
 
         tvEditing.setText(isRu
             ? "Изменение сообщения. Все сообщения после него будут удалены."
@@ -1550,11 +1482,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         editBar.setVisibility(View.GONE);
         if (restoreDraft) {
             etMessage.setText(editDraftText != null ? editDraftText : "");
-            setPendingImage(editDraftImage, editDraftImageMime);
+            setPendingAttachments(editDraftAttachments);
         }
         editDraftText = "";
-        editDraftImage = null;
-        editDraftImageMime = "image/jpeg";
+        editDraftAttachments = new ArrayList<Attachment>();
     }
 
     // Вызывается при отправке: удаляет изменяемое сообщение и всё после него (из списка и из БД)
@@ -1572,27 +1503,197 @@ public class MainActivity extends Activity implements PendingState.Listener {
         }
     }
 
-    // Устанавливает (или убирает, если b64 == null) прикреплённое изображение и превью
-    private void setPendingImage(String b64, String mime) {
-        if (b64 != null && b64.length() > 0) {
-            try {
-                byte[] bytes = Base64Compat.decode(b64);
-                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                if (bmp != null) {
-                    pendingImageBase64 = b64;
-                    pendingImageMime = mime != null ? mime : "image/jpeg";
-                    PendingState.pendingImageBase64 = pendingImageBase64;
-                    PendingState.pendingImageMime = pendingImageMime;
-                    ivPreview.setImageBitmap(bmp);
-                    attachPreviewLayout.setVisibility(View.VISIBLE);
-                    return;
-                }
-            } catch (Exception ignored) {}
+    // ---- Вложения: несколько картинок, PDF и текстовые файлы ----
+
+    // Заменяет все прикреплённые вложения (вход в режим изменения сообщения и выход из него)
+    private void setPendingAttachments(List<Attachment> list) {
+        PendingState.pendingAttachments.clear();
+        if (list != null) PendingState.pendingAttachments.addAll(list);
+        refreshAttachPreview();
+    }
+
+    // Открывает системный выбор: images = true - картинки, false - любые файлы
+    private void pickAttachment(boolean images) {
+        boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+        int room = Attachment.MAX_COUNT - PendingState.pendingAttachments.size() - PendingState.attachLoading;
+        if (room <= 0) {
+            Toast.makeText(this, isRu
+                ? "Максимум вложений в одном сообщении: " + Attachment.MAX_COUNT
+                : "Maximum attachments per message: " + Attachment.MAX_COUNT, Toast.LENGTH_SHORT).show();
+            return;
         }
-        pendingImageBase64 = null;
-        pendingImageMime = "image/jpeg";
-        PendingState.clearImage();
-        attachPreviewLayout.setVisibility(View.GONE);
+        // Пока окно выбора открыто, экран может пересоздаться: текст поля сохраняем заранее
+        PendingState.inputText = etMessage.getText().toString();
+        if (!PickerCompat.start(this, images ? REQUEST_PICK_IMAGE : REQUEST_PICK_FILE, images)) {
+            Toast.makeText(this, isRu
+                ? "Не найдено приложение для выбора файлов"
+                : "No app found to pick files", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // Выбранные файлы из результата выбора: несколько (ClipData, с Android 4.1) или один
+    private List<Uri> extractUris(Intent data) {
+        List<Uri> uris = new ArrayList<Uri>();
+        if (Http.sdk() >= PickerCompat.CLIP_SDK) {
+            try {
+                uris.addAll(PickerClip.uris(data));
+            } catch (Throwable ignored) {}
+        }
+        if (uris.isEmpty() && data.getData() != null) uris.add(data.getData());
+        return uris;
+    }
+
+    // Читает и уменьшает выбранные файлы в фоновом потоке (большие картинки и PDF быстрыми не бывают).
+    // Результат попадает в PendingState, поэтому не теряется, если экран повернули.
+    private void addAttachmentsFromUris(List<Uri> uris) {
+        if (uris == null || uris.isEmpty()) return;
+        final boolean isRu = Prefs.LANG_RU.equals(prefs.getLanguage());
+
+        int room = Attachment.MAX_COUNT - PendingState.pendingAttachments.size() - PendingState.attachLoading;
+        if (room <= 0) {
+            Toast.makeText(this, isRu
+                ? "Максимум вложений в одном сообщении: " + Attachment.MAX_COUNT
+                : "Maximum attachments per message: " + Attachment.MAX_COUNT, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final List<Uri> use = new ArrayList<Uri>();
+        for (int i = 0; i < uris.size() && i < room; i++) use.add(uris.get(i));
+        if (use.size() < uris.size()) {
+            Toast.makeText(this, isRu
+                ? "Добавлены не все файлы: максимум вложений в одном сообщении: " + Attachment.MAX_COUNT
+                : "Not all files were added: maximum attachments per message is " + Attachment.MAX_COUNT,
+                Toast.LENGTH_LONG).show();
+        }
+
+        PendingState.attachLoading += use.size();
+        refreshAttachPreview();
+
+        final android.content.Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < use.size(); i++) {
+                    Attachment att = null;
+                    String err = null;
+                    try {
+                        att = Attachment.load(app, use.get(i), isRu);
+                    } catch (Attachment.AttachException e) {
+                        err = e.getMessage();
+                    } catch (Throwable t) {
+                        AppLog.e("UI", "Attachment load failed", t);
+                        err = (isRu ? "Ошибка: " : "Error: ") + t;
+                    }
+                    final Attachment doneAtt = att;
+                    final String doneErr = err;
+                    PendingState.MAIN.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            finishAttachLoad(app, doneAtt, doneErr);
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    // Вызывается в главном потоке, когда одно вложение прочитано (att) или не удалось (err).
+    // Статический, чтобы работать, даже если Activity между тем пересоздали.
+    private static void finishAttachLoad(android.content.Context app, Attachment att, String err) {
+        if (PendingState.attachLoading > 0) PendingState.attachLoading--;
+        if (att != null) PendingState.pendingAttachments.add(att);
+        if (err != null) Toast.makeText(app, err, Toast.LENGTH_LONG).show();
+        Runnable r = PendingState.attachRefresh;
+        if (r != null) r.run();
+    }
+
+    // Перестраивает полоску вложений: плитки рядами по ширине экрана, последняя плитка "..." пока идёт загрузка
+    private void refreshAttachPreview() {
+        if (attachStrip == null || attachPreviewLayout == null) return;
+        attachStrip.removeAllViews();
+        List<Attachment> list = PendingState.pendingAttachments;
+        int total = list.size() + (PendingState.attachLoading > 0 ? 1 : 0);
+        if (total == 0) {
+            attachPreviewLayout.setVisibility(View.GONE);
+            return;
+        }
+
+        int tile = dp(72);
+        int gap = dp(3);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int cols = Math.max(2, (screenW - dp(12)) / (tile + gap * 2));
+        LinearLayout row = null;
+        for (int i = 0; i < total; i++) {
+            if (i % cols == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                attachStrip.addView(row, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.FILL_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
+            View v = i < list.size() ? makeAttachTile(list.get(i)) : makeLoadingTile();
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(tile, tile);
+            lp.setMargins(gap, gap, gap, gap);
+            row.addView(v, lp);
+        }
+
+        // Полоска не больше двух рядов в высоту, остальное прокручивается
+        int rows = (total + cols - 1) / cols;
+        android.view.ViewGroup.LayoutParams p = attachPreviewLayout.getLayoutParams();
+        if (p != null) {
+            p.height = Math.min(rows, 2) * (tile + gap * 2) + dp(12);
+            attachPreviewLayout.setLayoutParams(p);
+        }
+        attachPreviewLayout.setVisibility(View.VISIBLE);
+    }
+
+    // Плитка одного вложения: миниатюра картинки или расширение и имя файла, в углу кнопка «✕»
+    private View makeAttachTile(final Attachment att) {
+        final int fill = android.view.ViewGroup.LayoutParams.FILL_PARENT;
+        android.widget.FrameLayout tile = new android.widget.FrameLayout(this);
+        tile.setBackgroundColor(0xFF444444);
+
+        if (att.kind == Attachment.KIND_IMAGE) {
+            ImageView iv = new ImageView(this);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            Bitmap thumb = att.getThumb();
+            if (thumb != null) iv.setImageBitmap(thumb);
+            tile.addView(iv, new android.widget.FrameLayout.LayoutParams(fill, fill));
+        } else {
+            TextView tv = new TextView(this);
+            tv.setGravity(android.view.Gravity.CENTER);
+            tv.setTextColor(0xFFFFFFFF);
+            tv.setTextSize(11);
+            tv.setPadding(dp(4), dp(14), dp(4), dp(2));
+            tv.setMaxLines(4);
+            tv.setEllipsize(TextUtils.TruncateAt.END);
+            tv.setText(att.extLabel() + "\n" + att.name);
+            tile.addView(tv, new android.widget.FrameLayout.LayoutParams(fill, fill));
+        }
+
+        TextView remove = new TextView(this);
+        remove.setText("✕");
+        remove.setTextColor(0xFFFFFFFF);
+        remove.setTextSize(12);
+        remove.setGravity(android.view.Gravity.CENTER);
+        remove.setBackgroundColor(0xAA000000);
+        remove.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                PendingState.pendingAttachments.remove(att);
+                refreshAttachPreview();
+            }
+        });
+        tile.addView(remove, new android.widget.FrameLayout.LayoutParams(
+                dp(24), dp(24), android.view.Gravity.TOP | android.view.Gravity.RIGHT));
+        return tile;
+    }
+
+    private View makeLoadingTile() {
+        TextView tv = new TextView(this);
+        tv.setGravity(android.view.Gravity.CENTER);
+        tv.setBackgroundColor(0xFF333333);
+        tv.setTextColor(0xFFAAAAAA);
+        tv.setText("...");
+        return tv;
     }
 
     // Удаляет из БД последние сообщения текущего чата, пока там не останется size штук
@@ -1980,6 +2081,7 @@ public class MainActivity extends Activity implements PendingState.Listener {
         adapter.notifyDataSetChanged();
         currentChatId = -1;
         PendingState.clearAll();
+        refreshAttachPreview();
     }
 
     private void showLegacyTlsHint() {
@@ -2023,6 +2125,10 @@ public class MainActivity extends Activity implements PendingState.Listener {
         btnPhoto.setText(ru ? "Фото" : "Photo");
         box.addView(btnPhoto);
 
+        Button btnFile = new Button(this);
+        btnFile.setText(ru ? "Файл (PDF, текст, код)" : "File (PDF, text, code)");
+        box.addView(btnFile);
+
         Button btnImage = new Button(this);
         btnImage.setText(ru ? "Картинка" : "Image");
         box.addView(btnImage);
@@ -2059,9 +2165,14 @@ public class MainActivity extends Activity implements PendingState.Listener {
             @Override
             public void onClick(View v) {
                 dlg.dismiss();
-                Intent intent = new Intent(Intent.ACTION_PICK);
-                intent.setType("image/*");
-                startActivityForResult(intent, REQUEST_PICK_IMAGE);
+                pickAttachment(true);
+            }
+        });
+        btnFile.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                dlg.dismiss();
+                pickAttachment(false);
             }
         });
         btnImage.setOnClickListener(new View.OnClickListener() {

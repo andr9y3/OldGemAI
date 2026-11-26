@@ -1,4 +1,4 @@
-package com.geminiapp.chat;
+package com.ialwaysloveyou.oldgemai;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -33,7 +33,7 @@ public class SettingsActivity extends Activity {
 
     // Имя файла экспорта во внутреннем хранилище приложения; отдаётся наружу через ExportFileProvider
     public static final String EXPORT_FILE_NAME = "chats_export.json";
-    private static final String EXPORT_AUTHORITY = "com.geminiapp.chat.export";
+    private static final String EXPORT_AUTHORITY = "com.ialwaysloveyou.oldgemai.export";
 
     private Prefs prefs;
     private EditText etApiKey;
@@ -636,6 +636,21 @@ public class SettingsActivity extends Activity {
                         msgObj.put("image_base64", m.imageBase64);
                         msgObj.put("image_mime_type", m.imageMimeType != null ? m.imageMimeType : "");
                         msgObj.put("is_generated_image", m.isGeneratedImage);
+                    }
+                    if (!m.attachments.isEmpty()) {
+                        JSONArray attArr = new JSONArray();
+                        for (int a = 0; a < m.attachments.size(); a++) {
+                            Attachment att = m.attachments.get(a);
+                            JSONObject attObj = new JSONObject();
+                            attObj.put("kind", att.kind == Attachment.KIND_IMAGE ? "image"
+                                    : (att.kind == Attachment.KIND_PDF ? "pdf" : "text"));
+                            attObj.put("name", att.name);
+                            attObj.put("mime_type", att.mime);
+                            String attData = att.getBase64();
+                            if (attData != null) attObj.put("data_base64", attData);
+                            attArr.put(attObj);
+                        }
+                        msgObj.put("attachments", attArr);
                     }
                     msgsArr.put(msgObj);
                 }

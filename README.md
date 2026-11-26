@@ -84,6 +84,8 @@ The signed file is `app\build\outputs\apk\app-debug-aligned-signed.apk`. The scr
 keytool -genkeypair -v -keystore my.keystore -alias mykey -keyalg RSA -keysize 2048 -validity 10000
 ```
 
+**Known issue: EMUI 5.1 (Huawei/Honor).** On EMUI 5.1 the installation of the app hangs when the APK is opened with the system installer. Install it with Lucky Patcher or another installer app instead.
+
 ### 3. First launch
 
 On first launch the app asks you to choose a language, then shows a page about auto-update (with a checkbox to turn it off), then walks you through entering your API key. You can skip the key step and add the key later in Settings.
@@ -255,6 +257,7 @@ Notes:
 - Everything that does not touch the network (launch, UI, history, settings, Markdown, copy/edit) is drawn and stored by the app itself, so it works the same on all supported versions, even offline.
 - Android 2.3 and newer used to reach Gemini through the system TLS; since version 2.0 all versions below 4.1 use the built-in TLS 1.2 client, which has not been tested on a real device yet.
 - Android 1.0-1.5 devices have only one screen density, so the app icon there may be the default one.
+- On EMUI 5.1 (Huawei/Honor) the installation hangs when the APK is opened with the system installer. Install the app with Lucky Patcher or another installer app.
 - Picking several files in one go works from Android 4.3 (API 18). On older versions the system picker returns one file at a time, so each new file is added to the ones already attached (up to 10 per message). Attaching several files, PDFs and text files has not been tested on real devices yet.
 - On Android 1.5 (API 3) the icons under answers have no accessibility labels, because the system supports them only from API 4. The icons themselves work.
 - Voice input uses the system speech recognition window, so it works only if the phone has a speech recognition app (usually the Google app). On Android 1.0-1.1 (API 1-2) the app refuses to start recording and shows a message.
